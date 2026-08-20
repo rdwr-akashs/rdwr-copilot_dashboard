@@ -3,16 +3,20 @@ from __future__ import annotations
 import argparse
 import collections
 import concurrent.futures
+import getpass
 import glob
 import hashlib
+import hmac
 import json
 import math
 import os
 import re
+import secrets
 import socket
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -35,6 +39,10 @@ from compact_cache import *
 from full_cache import *
 from full_cache import _FULL_SESSION_DIRS, _FULL_SESSION_INDEX, _process_session_work_item
 from html_generation import generate_html
+from cli_usage import build_cli_dashboard_data, default_cli_db_path, default_cli_otel_paths
+from usage_model import records_from_chat_sessions, records_from_cli, build_unified
+from premium_requests import load_config as load_premium_config, build_budget, get_multiplier, MULTIPLIERS, PLAN_ALLOWANCES
+from insights_engine import build_insights_with_diagnostics
 
 def discover_log_dirs() -> list[str]:
     if os.environ.get("COPILOT_DEBUG_LOGS"):
@@ -52,6 +60,162 @@ def discover_log_dirs() -> list[str]:
 
     return sorted(set(candidates))
 
+
+
+def default_output_path() -> str:
+    """Resolve the default generated-dashboard path in a cross-platform way.
+
+    Historically this was hardcoded to /tmp/dashboard.html, which silently wrote to
+    C:\\tmp on Windows. Honour COPILOT_DASHBOARD_OUTPUT first, then fall back to the
+    platform temp directory.
+    """
+    configured = os.environ.get("COPILOT_DASHBOARD_OUTPUT")
+    if configured:
+        return os.path.abspath(os.path.expanduser(configured))
+    return os.path.join(tempfile.gettempdir(), "dashboard.html")
+
+
+# ---------------------------------------------------------------------------
+# Privacy: --anonymize / COPILOT_DASHBOARD_ANONYMIZE
+# ---------------------------------------------------------------------------
+# On a shared/team deployment, `session.source_ip` (the cache-shard name -
+# see `compact_cache.normalize_session_identity`), the `shard:session_id`
+# composite session id/key it builds, `unified.byHost`, and any absolute
+# path under the generating user's home directory (CLI `cwd`, its
+# `session-store.db` path, OTel export paths, chat tool-call file paths
+# surfaced in insight evidence) can all identify a specific developer or
+# machine. `anonymize_app_data()` replaces all of that with stable-per-host
+# pseudonyms and a generic "~" home-path prefix, applied as a final pass over
+# the fully-built `app_data` so it automatically covers every place an
+# identifier can reach the JSON embedded in the HTML - including
+# `app_data["insights"]` evidence - without each producer needing its own
+# opt-out.
+
+_ANONYMIZE_SALT_FILENAME = "anonymize_salt"
+
+
+def _env_flag(name: str) -> bool:
+    """Parse a boolean-ish environment variable (1/true/yes/on, case-insensitive)."""
+    return str(os.environ.get(name, "")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _anonymize_salt_path() -> str:
+    return os.path.join(os.path.expanduser("~"), ".copilot-dashboard", _ANONYMIZE_SALT_FILENAME)
+
+
+def _load_or_create_anonymize_salt() -> bytes:
+    """Load the local anonymization salt, generating and persisting one on first use.
+
+    The salt lives only on the local disk (`~/.copilot-dashboard/anonymize_salt`,
+    the same config-directory convention as `premium_requests.py`'s
+    `~/.copilot-dashboard/premium.json`) - it is never embedded in the
+    generated HTML, logged, or committed. Losing/rotating it simply changes
+    the pseudonyms on the next run; it does not affect any other data.
+    """
+    path = _anonymize_salt_path()
+    try:
+        if os.path.isfile(path):
+            with open(path, "rb") as handle:
+                data = handle.read().strip()
+            if data:
+                return data
+    except Exception:
+        pass
+    salt = secrets.token_bytes(32)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as handle:
+            handle.write(salt)
+    except Exception:
+        # Best effort: if we can't persist it, still return a salt so this
+        # run is anonymized (pseudonyms just won't be stable across runs).
+        pass
+    return salt
+
+
+def _pseudonym_for(value: str, salt: bytes) -> str:
+    """Short, stable, non-reversible pseudonym for a host/IP identifier."""
+    digest = hmac.new(salt, value.encode("utf-8", errors="ignore"), hashlib.sha256).hexdigest()
+    return f"dev-{digest[:4]}"
+
+
+# Generic host labels that are never personally identifying and should never
+# be pseudonymized (they'd just become noisier without protecting anyone).
+_ANONYMIZE_HOST_EXEMPT = {"unknown-host", "cli-local"}
+
+
+def _collect_host_identifiers(app_data: dict[str, Any]) -> set[str]:
+    ids: set[str] = set()
+    for session in app_data.get("sessions", []) or []:
+        value = str(session.get("source_ip") or "").strip()
+        if value:
+            ids.add(value)
+    for row in (app_data.get("unified") or {}).get("byHost", []) or []:
+        value = str(row.get("host") or "").strip()
+        if value:
+            ids.add(value)
+    return {value for value in ids if value not in _ANONYMIZE_HOST_EXEMPT}
+
+
+def _walk_replace_strings(obj: Any, replacements: list[tuple[str, str]]) -> Any:
+    if isinstance(obj, dict):
+        return {key: _walk_replace_strings(value, replacements) for key, value in obj.items()}
+    if isinstance(obj, list):
+        return [_walk_replace_strings(item, replacements) for item in obj]
+    if isinstance(obj, str):
+        out = obj
+        for old, new in replacements:
+            if old:
+                out = out.replace(old, new)
+        return out
+    return obj
+
+
+def anonymize_app_data(app_data: dict[str, Any], anonymize_paths: bool = True) -> dict[str, Any]:
+    """Replace host/IP identifiers (and, optionally, home-directory paths) in `app_data`.
+
+    Host/IP pseudonymization: every distinct `source_ip` / `unified.byHost`
+    value (excluding the generic `"unknown-host"` / `"cli-local"` labels) is
+    replaced everywhere it appears - including inside the `shard:session_id`
+    composite session id/key - with a short, stable-per-machine pseudonym
+    like `dev-a3f1` (HMAC-SHA256 of the value with a local-only salt,
+    truncated; not reversible without the salt file).
+
+    Path anonymization (`anonymize_paths=True`, the default whenever
+    `--anonymize` is set): the generating user's home directory (in both its
+    native and forward-slash forms, since some paths in this codebase mix
+    separators) is replaced with `"~"`, and the OS username is replaced with
+    the literal string `"user"`, everywhere in the tree - this is what
+    scrubs CLI `cwd`, `session-store.db`/OTel paths, and chat tool-call file
+    paths surfaced in insight evidence.
+
+    Aggregate numeric values (costs, tokens, premium requests, counts) are
+    never touched - only string values change.
+    """
+    salt = _load_or_create_anonymize_salt()
+    host_ids = _collect_host_identifiers(app_data)
+
+    # Longest-first so a host id that happens to contain another string we
+    # replace later (e.g. the OS username) is fully substituted before any
+    # shorter/generic substring replacement runs.
+    replacements: list[tuple[str, str]] = [
+        (value, _pseudonym_for(value, salt)) for value in sorted(host_ids, key=len, reverse=True)
+    ]
+
+    if anonymize_paths:
+        home = os.path.expanduser("~")
+        for variant in sorted({home, home.replace("\\", "/")}, key=len, reverse=True):
+            if variant and variant != os.sep:
+                replacements.append((variant, "~"))
+        username = os.environ.get("USERNAME") or os.environ.get("USER") or ""
+        try:
+            username = username or getpass.getuser()
+        except Exception:
+            pass
+        if username:
+            replacements.append((username, "user"))
+
+    return _walk_replace_strings(app_data, replacements)
 
 
 def build_dashboard_data(
@@ -257,14 +421,25 @@ def build_dashboard_data(
 
 
 
-def write_dashboard(
-  output_file: str | None = None,
+def compose_app_data(
   log_dirs: list[str] | None = None,
   cache_root_dir: str | None = None,
   force_recalculate: bool = False,
   cache_verify_seconds: int = DEFAULT_CACHE_VERIFY_SECONDS,
   workers: int = 8,
-) -> str:
+  cli_db_path: str | None = None,
+  cli_otel_log_paths: list[str] | None = None,
+  premium_plan: str | None = None,
+  premium_quota: int | None = None,
+  premium_config_path: str | None = None,
+  anonymize: bool = False,
+) -> dict[str, Any]:
+    """Build the complete ``app_data`` payload shared by every entry point.
+
+    This is the single composition seam: both the batch generator
+    (``write_dashboard``) and the live HTTP server call it, so neither can
+    drift out of sync when a new stage is added here.
+    """
     resolved_log_dirs = log_dirs or discover_log_dirs()
     if not resolved_log_dirs:
         raise RuntimeError("Could not find Copilot debug logs. Set COPILOT_DEBUG_LOGS or pass log directories explicitly.")
@@ -276,8 +451,125 @@ def write_dashboard(
       cache_verify_seconds=cache_verify_seconds,
       workers=workers,
     )
+    try:
+      app_data["cli"] = build_cli_dashboard_data(
+        cli_db_path or default_cli_db_path(),
+        otel_log_paths=cli_otel_log_paths if cli_otel_log_paths is not None else default_cli_otel_paths(),
+      )
+    except Exception:
+      app_data["cli"] = {"available": False, "dbPath": None, "sessions": [], "byModel": [], "files": [], "tools": [], "otelAvailable": False, "otelPaths": [], "summary": {}}
+
+    # Unified backend usage model + premium-request/budget accounting. Purely
+    # additive: failures degrade to empty structures rather than breaking the
+    # rest of the dashboard, matching the app_data["cli"] pattern above.
+    try:
+      premium_config = load_premium_config(
+        plan=premium_plan,
+        allowance=premium_quota,
+        config_path=premium_config_path,
+      )
+      multipliers = premium_config.get("multipliers")
+      chat_records = records_from_chat_sessions(app_data.get("sessions"), multipliers=multipliers)
+      cli_records = records_from_cli(app_data.get("cli"), multipliers=multipliers)
+      unified = build_unified(chat_records + cli_records)
+      budget = build_budget(unified, premium_config)
+      app_data["unified"] = unified
+      app_data["premium"] = {
+        "config": premium_config,
+        "budget": budget,
+        "multipliers": MULTIPLIERS,
+        "planAllowances": PLAN_ALLOWANCES,
+      }
+
+      # Attach premiumRequests onto existing per-session / per-model aggregates,
+      # additively - no existing key's value is altered.
+      try:
+        premium_by_session: dict[str, float] = {}
+        for record in chat_records:
+          session_id = record.get("sessionId")
+          if session_id:
+            premium_by_session[session_id] = premium_by_session.get(session_id, 0.0) + float(record.get("premiumRequests", 0.0) or 0.0)
+        for session in app_data.get("sessions", []) or []:
+          session["premiumRequests"] = premium_by_session.get(session.get("id"), 0.0)
+
+        def _attach_model_premium(model_rows: list[dict[str, Any]] | None) -> None:
+          for row in model_rows or []:
+            name = row.get("name") or row.get("model")
+            count = float(row.get("count", row.get("calls", 0)) or 0)
+            row["premiumRequests"] = count * get_multiplier(str(name or ""), multipliers)
+
+        _attach_model_premium(app_data.get("analysis", {}).get("models"))
+        for period_key in ("allTime", "monthly"):
+          period_bundle = app_data.get("periods", {}).get(period_key) or {}
+          _attach_model_premium((period_bundle.get("analysis") or {}).get("models"))
+        _attach_model_premium(app_data.get("cli", {}).get("byModel"))
+      except Exception:
+        pass
+    except Exception:
+      app_data["unified"] = {"daily": [], "monthly": [], "byModel": [], "byRepo": [], "bySource": [], "byHost": [], "totals": {}, "range": {"firstTs": None, "lastTs": None}}
+      app_data["premium"] = {"config": {}, "budget": {}, "multipliers": MULTIPLIERS, "planAllowances": PLAN_ALLOWANCES}
+
+    # Deterministic recommendations engine (insights_engine.py), built from
+    # the unified/premium data above. Purely additive: a rule crash degrades
+    # to an empty list plus a diagnostic, never the whole dashboard.
+    try:
+      insights, insight_errors = build_insights_with_diagnostics(app_data)
+      app_data["insights"] = insights
+      if insight_errors:
+        app_data["_errors"] = (app_data.get("_errors") or []) + [f"insights_engine.{err}" for err in insight_errors]
+    except Exception as exc:
+      app_data["insights"] = []
+      app_data["_errors"] = (app_data.get("_errors") or []) + [f"insights_engine: {exc!r}"]
+
+    # Privacy: replace host/IP identifiers and home-directory paths with
+    # stable pseudonyms when requested (--anonymize / COPILOT_DASHBOARD_ANONYMIZE).
+    # Runs last, over the fully-built app_data, so it automatically covers
+    # unified.byHost, session ids, CLI paths, and insight evidence alike.
+    # `app_data["anonymized"]` tells the frontend whether it is looking at
+    # real or pseudonymized identifiers, so it can label the dashboard honestly.
+    effective_anonymize = anonymize or _env_flag("COPILOT_DASHBOARD_ANONYMIZE")
+    if effective_anonymize:
+      try:
+        app_data.update(anonymize_app_data(app_data))
+        app_data["anonymized"] = True
+      except Exception as exc:
+        app_data["anonymized"] = False
+        app_data["_errors"] = (app_data.get("_errors") or []) + [f"anonymize: {exc!r}"]
+    else:
+      app_data["anonymized"] = False
+
+    return app_data
+
+
+def write_dashboard(
+  output_file: str | None = None,
+  log_dirs: list[str] | None = None,
+  cache_root_dir: str | None = None,
+  force_recalculate: bool = False,
+  cache_verify_seconds: int = DEFAULT_CACHE_VERIFY_SECONDS,
+  workers: int = 8,
+  cli_db_path: str | None = None,
+  cli_otel_log_paths: list[str] | None = None,
+  premium_plan: str | None = None,
+  premium_quota: int | None = None,
+  premium_config_path: str | None = None,
+  anonymize: bool = False,
+) -> str:
+    app_data = compose_app_data(
+      log_dirs=log_dirs,
+      cache_root_dir=cache_root_dir,
+      force_recalculate=force_recalculate,
+      cache_verify_seconds=cache_verify_seconds,
+      workers=workers,
+      cli_db_path=cli_db_path,
+      cli_otel_log_paths=cli_otel_log_paths,
+      premium_plan=premium_plan,
+      premium_quota=premium_quota,
+      premium_config_path=premium_config_path,
+      anonymize=anonymize,
+    )
     html = generate_html(app_data)
-    output_path = os.path.abspath(os.path.expanduser(output_file)) if output_file else "/tmp/dashboard.html"
+    output_path = os.path.abspath(os.path.expanduser(output_file)) if output_file else default_output_path()
     output_dir = os.path.dirname(output_path)
     if output_dir:
       os.makedirs(output_dir, exist_ok=True)
@@ -293,7 +585,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
       "--cache-dir",
       default=os.environ.get("COPILOT_DASHBOARD_CACHE_DIR") or default_dashboard_cache_root(),
-      help="Directory for per-session parse cache (default: /mnt/radware/$USER/copilot_dashboard_cache).",
+      help="Directory for per-session parse cache (default: /mnt/radware/$USER/copilot_dashboard_cache when that mount exists, otherwise ~/.copilot-dashboard/cache).",
     )
     parser.add_argument(
       "--cache-verify-seconds",
@@ -312,6 +604,58 @@ def main(argv: list[str] | None = None) -> None:
       default=8,
       help="Number of worker threads for parallel session processing (default: 8, max: 64).",
     )
+    parser.add_argument(
+      "--cli-db",
+      default=os.environ.get("COPILOT_CLI_DB"),
+      help="Path to the GitHub Copilot CLI session-store.db (default: ~/.copilot/session-store.db, if present).",
+    )
+    parser.add_argument(
+      "--cli-otel-log",
+      action="append",
+      default=None,
+      help=(
+        "Path to a GitHub Copilot CLI OpenTelemetry JSONL export file (from COPILOT_OTEL_FILE_EXPORTER_PATH), "
+        "used to enrich CLI sessions with real per-tool-call data. Repeatable. "
+        "Default: $COPILOT_OTEL_FILE_EXPORTER_PATH, if present."
+      ),
+    )
+    parser.add_argument(
+      "--plan",
+      default=None,
+      help=(
+        "GitHub Copilot plan used to resolve the premium-request monthly allowance "
+        "(free|pro|pro_plus|business|enterprise). Default: $COPILOT_PLAN, else 'pro'. "
+        "This is a local estimate only, not official GitHub billing."
+      ),
+    )
+    parser.add_argument(
+      "--premium-quota",
+      type=int,
+      default=None,
+      help=(
+        "Explicit monthly premium-request allowance, overriding the --plan default. "
+        "Default: $COPILOT_PREMIUM_QUOTA, else the resolved plan's documented allowance."
+      ),
+    )
+    parser.add_argument(
+      "--premium-config",
+      default=None,
+      help=(
+        "Path to a JSON config file overriding premium-request plan/allowance/multipliers/thresholds. "
+        "Default: $COPILOT_PREMIUM_CONFIG, else ~/.copilot-dashboard/premium.json, if present."
+      ),
+    )
+    parser.add_argument(
+      "--anonymize",
+      action="store_true",
+      default=False,
+      help=(
+        "Replace host/IP identifiers and home-directory paths in the generated dashboard with "
+        "stable per-machine pseudonyms (e.g. 'dev-a3f1'), for sharing on a shared/team deployment "
+        "without leaking colleagues' hostnames, IPs, or usernames. Aggregate numbers are unchanged. "
+        "Default: $COPILOT_DASHBOARD_ANONYMIZE, else off."
+      ),
+    )
     args = parser.parse_args(argv)
 
     # Clamp workers between 1 and 64
@@ -328,6 +672,12 @@ def main(argv: list[str] | None = None) -> None:
       force_recalculate=bool(args.recalculate_all),
       cache_verify_seconds=args.cache_verify_seconds,
       workers=workers,
+      cli_db_path=args.cli_db,
+      cli_otel_log_paths=args.cli_otel_log,
+      premium_plan=args.plan,
+      premium_quota=args.premium_quota,
+      premium_config_path=args.premium_config,
+      anonymize=bool(args.anonymize),
     )
     print(f"Dashboard written to: {output_path}", file=sys.stderr)
     print(output_path)

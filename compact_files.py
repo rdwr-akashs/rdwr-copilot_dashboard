@@ -239,6 +239,7 @@ def compact_session_for_ui(session: dict[str, Any]) -> dict[str, Any]:
     "cache_hit_rate": session.get("cache_hit_rate", 0.0),
     "duration_ms": session.get("duration_ms", 0.0),
     "overhead": session.get("overhead", {}),
+    "premiumRequests": session.get("premiumRequests", 0.0),
     "has_full": True,
   }
 
@@ -250,4 +251,17 @@ def compact_app_data_for_html(app_data: dict[str, Any]) -> dict[str, Any]:
     "sessions": [compact_session_for_ui(session) for session in app_data.get("sessions", [])],
     "analysis": app_data.get("analysis", {}),
     "periods": app_data.get("periods", {}),
+    "cli": app_data.get("cli", {"available": False, "sessions": [], "byModel": [], "files": [], "tools": [], "otelAvailable": False, "otelPaths": [], "summary": {}}),
+    # Unified backend usage model + premium-request/budget accounting
+    # (usage_model.py / premium_requests.py). Additive: safe empty defaults
+    # keep older-shaped app_data from breaking this pass-through.
+    "unified": app_data.get("unified", {"daily": [], "monthly": [], "byModel": [], "byRepo": [], "bySource": [], "byHost": [], "totals": {}, "range": {"firstTs": None, "lastTs": None}}),
+    "premium": app_data.get("premium", {"config": {}, "budget": {}, "multipliers": {}, "planAllowances": {}}),
+    # Deterministic recommendations (insights_engine.py). Additive default
+    # keeps older-shaped app_data safe.
+    "insights": app_data.get("insights", []),
+    # True when --anonymize / COPILOT_DASHBOARD_ANONYMIZE replaced host/IP
+    # identifiers and home paths with pseudonyms, so the UI can label the
+    # dashboard honestly. Additive default (False) for older-shaped app_data.
+    "anonymized": app_data.get("anonymized", False),
   }

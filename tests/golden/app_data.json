@@ -1,0 +1,1474 @@
+{
+  "analysis": {
+    "files": [],
+    "models": [
+      {
+        "avgDurationMs": 2000.0,
+        "avgTtftMs": 0.0,
+        "cacheHitRate": 25.0,
+        "cached": 500.0,
+        "cost": 0.009875,
+        "count": 1,
+        "durationMs": 2000.0,
+        "input": 2000.0,
+        "name": "gpt-5.4",
+        "output": 400.0,
+        "sessionCount": 1,
+        "uncached": 1500.0
+      },
+      {
+        "avgDurationMs": 1200.0,
+        "avgTtftMs": 0.0,
+        "cacheHitRate": 10.0,
+        "cached": 100.0,
+        "cost": 0.005730000000000001,
+        "count": 1,
+        "durationMs": 1200.0,
+        "input": 1000.0,
+        "name": "claude-sonnet-4.5",
+        "output": 200.0,
+        "sessionCount": 1,
+        "uncached": 900.0
+      }
+    ],
+    "monthlyTrends": [
+      {
+        "cacheHitRate": 20.0,
+        "cacheResetCount": 0,
+        "chatCallCount": 2,
+        "contextResetCount": 0,
+        "label": "January 2025",
+        "messageCount": 2,
+        "modelCount": 2,
+        "modelNames": [
+          "claude-sonnet-4.5",
+          "gpt-5.4"
+        ],
+        "modelSwitchCount": 0,
+        "monthKey": "2025-01",
+        "peakPromptTokens": 2000.0,
+        "segmentCount": 2,
+        "sessionCount": 2,
+        "toolCallCount": 0,
+        "totals": {
+          "cached": 600.0,
+          "cost": 0.015605,
+          "input": 3000.0,
+          "output": 600.0,
+          "uncached": 2400.0
+        }
+      }
+    ],
+    "overhead": {
+      "assistant_context": {
+        "cached": 0.0,
+        "cost": 0.0,
+        "input": 0.0,
+        "output": 0.0,
+        "uncached": 0.0
+      },
+      "files": {
+        "cached": 0.0,
+        "cost": 0.0,
+        "input": 0.0,
+        "output": 0.0,
+        "uncached": 0.0
+      },
+      "system_prompt": {
+        "cached": 0.0,
+        "cost": 0.0,
+        "input": 0.0,
+        "output": 0.0,
+        "uncached": 0.0
+      },
+      "tool_definitions": {
+        "cached": 0.0,
+        "cost": 0.0,
+        "input": 0.0,
+        "output": 0.0,
+        "uncached": 0.0
+      },
+      "tools": {
+        "cached": 0.0,
+        "cost": 0.0,
+        "input": 0.0,
+        "output": 0.0,
+        "uncached": 0.0
+      },
+      "unattributed": {
+        "cached": 600.0,
+        "cost": 0.015605,
+        "input": 3000.0,
+        "output": 600.0,
+        "uncached": 2400.0
+      },
+      "user_messages": {
+        "cached": 0.0,
+        "cost": 0.0,
+        "input": 0.0,
+        "output": 0.0,
+        "uncached": 0.0
+      }
+    },
+    "slowestTools": [],
+    "telemetry": {
+      "entryTypes": {
+        "agent_response": 2,
+        "llm_request": 2,
+        "user_message": 2
+      },
+      "observedFields": [
+        "cachedTokens",
+        "content",
+        "inputMessages",
+        "inputTokens",
+        "model",
+        "outputTokens",
+        "response"
+      ],
+      "sections": [
+        {
+          "items": [
+            "Model name, response ID, debug name",
+            "Cumulative input / output / cached token counters",
+            "Request duration and TTFT",
+            "System prompt file and tool-definition file references",
+            "Full user / assistant / tool message payloads in inputMessages",
+            "Assistant reasoning text when Copilot records it",
+            "Executed tool name, args, result, duration, status",
+            "File paths for read/edit tools when present in args or patch"
+          ],
+          "name": "Observed today"
+        },
+        {
+          "items": [
+            "Exact per-message token counts",
+            "Exact per-tool token counts",
+            "Provider cache-write token counts when Copilot does not emit them",
+            "Explicit compaction / summarization events in debug logs (the dashboard infers context resets from prompt resets/shrinks)",
+            "Exact per-file token attribution",
+            "Exact split between tool payload vs file payload within one tool turn (dashboard uses a mode-aware estimate)",
+            "Ground-truth cost split by tool or file (only estimable)"
+          ],
+          "name": "Not exposed directly by current Copilot telemetry"
+        }
+      ]
+    },
+    "toolCatalog": [],
+    "tools": [],
+    "topChats": [
+      {
+        "cached": 500.0,
+        "cost": 0.009875,
+        "durationMs": 2000.0,
+        "input": 2000.0,
+        "model": "gpt-5.4",
+        "output": 400.0,
+        "promptTokens": 2000.0,
+        "sessionId": "test-shard:session-bbb222",
+        "sessionTitle": "Write CLI dashboard tests",
+        "timestamp": 1735812000500,
+        "title": "chat gpt-5.4",
+        "uncached": 1500.0
+      },
+      {
+        "cached": 100.0,
+        "cost": 0.005730000000000001,
+        "durationMs": 1200.0,
+        "input": 1000.0,
+        "model": "claude-sonnet-4.5",
+        "output": 200.0,
+        "promptTokens": 1000.0,
+        "sessionId": "test-shard:session-aaa111",
+        "sessionTitle": "Fix the login bug",
+        "timestamp": 1735725600500,
+        "title": "chat claude-sonnet-4.5",
+        "uncached": 900.0
+      }
+    ]
+  },
+  "cli": {
+    "available": true,
+    "byModel": [
+      {
+        "cacheWrite": 0.0,
+        "cached": 2500.0,
+        "calls": 2,
+        "cost": 0.019125,
+        "input": 4500.0,
+        "model": "gpt-5.4",
+        "output": 900.0,
+        "sessionCount": 1,
+        "uncached": 2000.0
+      },
+      {
+        "cacheWrite": 50.0,
+        "cached": 900.0,
+        "calls": 3,
+        "cost": 0.01557,
+        "input": 3000.0,
+        "model": "claude-sonnet-4.5",
+        "output": 600.0,
+        "sessionCount": 2,
+        "uncached": 2100.0
+      }
+    ],
+    "dbPath": "<normalized-cli-db-path>",
+    "files": [
+      {
+        "created": 1,
+        "edited": 1,
+        "lastTouched": 1767346260000.0,
+        "path": "tests/test_cli_usage.py",
+        "sessionCount": 1,
+        "touches": 2
+      },
+      {
+        "created": 0,
+        "edited": 1,
+        "lastTouched": 1767261610000.0,
+        "path": "auth/login.py",
+        "sessionCount": 1,
+        "touches": 1
+      },
+      {
+        "created": 1,
+        "edited": 0,
+        "lastTouched": 1767262560000.0,
+        "path": "tests/test_login.py",
+        "sessionCount": 1,
+        "touches": 1
+      },
+      {
+        "created": 0,
+        "edited": 1,
+        "lastTouched": 1767449160000.0,
+        "path": "model_pricing.py",
+        "sessionCount": 1,
+        "touches": 1
+      }
+    ],
+    "otelAvailable": true,
+    "otelPaths": [
+      "<normalized-otel-path>"
+    ],
+    "periods": {
+      "allTime": {
+        "byModel": [
+          {
+            "cacheWrite": 0.0,
+            "cached": 2500.0,
+            "calls": 2,
+            "cost": 0.019125,
+            "input": 4500.0,
+            "model": "gpt-5.4",
+            "output": 900.0,
+            "sessionCount": 1,
+            "uncached": 2000.0
+          },
+          {
+            "cacheWrite": 50.0,
+            "cached": 900.0,
+            "calls": 3,
+            "cost": 0.01557,
+            "input": 3000.0,
+            "model": "claude-sonnet-4.5",
+            "output": 600.0,
+            "sessionCount": 2,
+            "uncached": 2100.0
+          }
+        ],
+        "summary": {
+          "callCount": 5,
+          "fileCount": 4,
+          "sessionCount": 3,
+          "toolCallCount": 4,
+          "totalCached": 3400.0,
+          "totalCost": 0.034695000000000004,
+          "totalInput": 7500.0,
+          "totalOutput": 1500.0,
+          "totalUncached": 4100.0
+        }
+      },
+      "default": "monthly",
+      "labels": {
+        "allTime": "All time",
+        "monthly": "August 2026"
+      },
+      "monthly": {
+        "byModel": [],
+        "monthKey": "2026-08",
+        "summary": {
+          "callCount": 0,
+          "fileCount": 0,
+          "sessionCount": 0,
+          "toolCallCount": 0,
+          "totalCached": 0.0,
+          "totalCost": 0.0,
+          "totalInput": 0.0,
+          "totalOutput": 0.0,
+          "totalUncached": 0.0
+        }
+      }
+    },
+    "sessions": [
+      {
+        "branch": "main",
+        "cached": 0.0,
+        "callCount": 1,
+        "cost": 0.003,
+        "createdAt": 1767448800000.0,
+        "cwd": "/repo/a",
+        "dayKey": "2026-01-03",
+        "files": [
+          {
+            "created": 0,
+            "edited": 1,
+            "lastTouched": 1767449160000.0,
+            "path": "model_pricing.py",
+            "touches": 1
+          }
+        ],
+        "id": "session-3",
+        "input": 500.0,
+        "lastActivity": 1767449100000.0,
+        "modelBreakdown": [
+          {
+            "cacheWrite": 0.0,
+            "cached": 0.0,
+            "calls": 1,
+            "cost": 0.003,
+            "input": 500.0,
+            "model": "claude-sonnet-4.5",
+            "output": 100.0
+          }
+        ],
+        "models": [
+          "claude-sonnet-4.5"
+        ],
+        "monthKey": "2026-01",
+        "output": 100.0,
+        "repository": "org/repo-a",
+        "summary": "Refactor pricing module",
+        "tools": [],
+        "turnCount": 1,
+        "turns": [
+          {
+            "assistantResponse": "Split calculate_cost into helpers.",
+            "assistantResponseTruncated": false,
+            "timestamp": 1767448800000.0,
+            "turnIndex": 0,
+            "userMessage": "Refactor pricing",
+            "userMessageTruncated": false
+          }
+        ],
+        "uncached": 500.0,
+        "updatedAt": 1767450000000.0
+      },
+      {
+        "branch": "feature/x",
+        "cached": 2500.0,
+        "callCount": 2,
+        "cost": 0.019125,
+        "createdAt": 1767344400000.0,
+        "cwd": "/repo/b",
+        "dayKey": "2026-01-02",
+        "files": [
+          {
+            "created": 1,
+            "edited": 1,
+            "lastTouched": 1767346260000.0,
+            "path": "tests/test_cli_usage.py",
+            "touches": 2
+          }
+        ],
+        "id": "session-2",
+        "input": 4500.0,
+        "lastActivity": 1767346200000.0,
+        "modelBreakdown": [
+          {
+            "cacheWrite": 0.0,
+            "cached": 2500.0,
+            "calls": 2,
+            "cost": 0.019125,
+            "input": 4500.0,
+            "model": "gpt-5.4",
+            "output": 900.0
+          }
+        ],
+        "models": [
+          "gpt-5.4"
+        ],
+        "monthKey": "2026-01",
+        "output": 900.0,
+        "repository": "org/repo-b",
+        "summary": "Add dashboard tests",
+        "tools": [
+          {
+            "avgDurationMs": 2500.0,
+            "calls": 1,
+            "tool": "bash",
+            "totalDurationMs": 2500.0
+          }
+        ],
+        "turnCount": 2,
+        "turns": [
+          {
+            "assistantResponse": "Created tests/test_cli_usage.py",
+            "assistantResponseTruncated": false,
+            "timestamp": 1767344400000.0,
+            "turnIndex": 0,
+            "userMessage": "Write tests for the dashboard",
+            "userMessageTruncated": false
+          },
+          {
+            "assistantResponse": "All tests pass.",
+            "assistantResponseTruncated": false,
+            "timestamp": 1767346200000.0,
+            "turnIndex": 1,
+            "userMessage": "Run them",
+            "userMessageTruncated": false
+          }
+        ],
+        "uncached": 2000.0,
+        "updatedAt": 1767347100000.0
+      },
+      {
+        "branch": "main",
+        "cached": 900.0,
+        "callCount": 2,
+        "cost": 0.012570000000000001,
+        "createdAt": 1767261600000.0,
+        "cwd": "/repo/a",
+        "dayKey": "2026-01-01",
+        "files": [
+          {
+            "created": 0,
+            "edited": 1,
+            "lastTouched": 1767261610000.0,
+            "path": "auth/login.py",
+            "touches": 1
+          },
+          {
+            "created": 1,
+            "edited": 0,
+            "lastTouched": 1767262560000.0,
+            "path": "tests/test_login.py",
+            "touches": 1
+          }
+        ],
+        "id": "session-1",
+        "input": 2500.0,
+        "lastActivity": 1767262500000.0,
+        "modelBreakdown": [
+          {
+            "cacheWrite": 50.0,
+            "cached": 900.0,
+            "calls": 2,
+            "cost": 0.012570000000000001,
+            "input": 2500.0,
+            "model": "claude-sonnet-4.5",
+            "output": 500.0
+          }
+        ],
+        "models": [
+          "claude-sonnet-4.5"
+        ],
+        "monthKey": "2026-01",
+        "output": 500.0,
+        "repository": "org/repo-a",
+        "summary": "Fix the login bug",
+        "tools": [
+          {
+            "avgDurationMs": 200.0,
+            "calls": 2,
+            "tool": "read_file",
+            "totalDurationMs": 400.0
+          },
+          {
+            "avgDurationMs": 1000.0,
+            "calls": 1,
+            "tool": "edit_file",
+            "totalDurationMs": 1000.0
+          }
+        ],
+        "turnCount": 2,
+        "turns": [
+          {
+            "assistantResponse": "Sure, let's look at the auth module.",
+            "assistantResponseTruncated": false,
+            "timestamp": 1767261600000.0,
+            "turnIndex": 0,
+            "userMessage": "Fix the login bug please",
+            "userMessageTruncated": false
+          },
+          {
+            "assistantResponse": "Added a regression test.",
+            "assistantResponseTruncated": false,
+            "timestamp": 1767262500000.0,
+            "turnIndex": 1,
+            "userMessage": "Also add a test",
+            "userMessageTruncated": false
+          }
+        ],
+        "uncached": 1600.0,
+        "updatedAt": 1767263400000.0
+      }
+    ],
+    "summary": {
+      "callCount": 5,
+      "fileCount": 4,
+      "sessionCount": 3,
+      "toolCallCount": 4,
+      "totalCached": 3400.0,
+      "totalCost": 0.034695000000000004,
+      "totalInput": 7500.0,
+      "totalOutput": 1500.0,
+      "totalUncached": 4100.0
+    },
+    "tools": [
+      {
+        "avgDurationMs": 200.0,
+        "calls": 2,
+        "sessionCount": 1,
+        "tool": "read_file",
+        "totalDurationMs": 400.0
+      },
+      {
+        "avgDurationMs": 1000.0,
+        "calls": 1,
+        "sessionCount": 1,
+        "tool": "edit_file",
+        "totalDurationMs": 1000.0
+      },
+      {
+        "avgDurationMs": 2500.0,
+        "calls": 1,
+        "sessionCount": 1,
+        "tool": "bash",
+        "totalDurationMs": 2500.0
+      }
+    ]
+  },
+  "generatedAt": "2026-01-01 00:00:00",
+  "periods": {
+    "allTime": {
+      "analysis": {
+        "files": [],
+        "models": [
+          {
+            "avgDurationMs": 2000.0,
+            "avgTtftMs": 0.0,
+            "cacheHitRate": 25.0,
+            "cached": 500.0,
+            "cost": 0.009875,
+            "count": 1,
+            "durationMs": 2000.0,
+            "input": 2000.0,
+            "name": "gpt-5.4",
+            "output": 400.0,
+            "sessionCount": 1,
+            "uncached": 1500.0
+          },
+          {
+            "avgDurationMs": 1200.0,
+            "avgTtftMs": 0.0,
+            "cacheHitRate": 10.0,
+            "cached": 100.0,
+            "cost": 0.005730000000000001,
+            "count": 1,
+            "durationMs": 1200.0,
+            "input": 1000.0,
+            "name": "claude-sonnet-4.5",
+            "output": 200.0,
+            "sessionCount": 1,
+            "uncached": 900.0
+          }
+        ],
+        "monthlyTrends": [
+          {
+            "cacheHitRate": 20.0,
+            "cacheResetCount": 0,
+            "chatCallCount": 2,
+            "contextResetCount": 0,
+            "label": "January 2025",
+            "messageCount": 2,
+            "modelCount": 2,
+            "modelNames": [
+              "claude-sonnet-4.5",
+              "gpt-5.4"
+            ],
+            "modelSwitchCount": 0,
+            "monthKey": "2025-01",
+            "peakPromptTokens": 2000.0,
+            "segmentCount": 2,
+            "sessionCount": 2,
+            "toolCallCount": 0,
+            "totals": {
+              "cached": 600.0,
+              "cost": 0.015605,
+              "input": 3000.0,
+              "output": 600.0,
+              "uncached": 2400.0
+            }
+          }
+        ],
+        "overhead": {
+          "assistant_context": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "files": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "system_prompt": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "tool_definitions": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "tools": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "unattributed": {
+            "cached": 600.0,
+            "cost": 0.015605,
+            "input": 3000.0,
+            "output": 600.0,
+            "uncached": 2400.0
+          },
+          "user_messages": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          }
+        },
+        "slowestTools": [],
+        "telemetry": {
+          "entryTypes": {
+            "agent_response": 2,
+            "llm_request": 2,
+            "user_message": 2
+          },
+          "observedFields": [
+            "cachedTokens",
+            "content",
+            "inputMessages",
+            "inputTokens",
+            "model",
+            "outputTokens",
+            "response"
+          ],
+          "sections": [
+            {
+              "items": [
+                "Model name, response ID, debug name",
+                "Cumulative input / output / cached token counters",
+                "Request duration and TTFT",
+                "System prompt file and tool-definition file references",
+                "Full user / assistant / tool message payloads in inputMessages",
+                "Assistant reasoning text when Copilot records it",
+                "Executed tool name, args, result, duration, status",
+                "File paths for read/edit tools when present in args or patch"
+              ],
+              "name": "Observed today"
+            },
+            {
+              "items": [
+                "Exact per-message token counts",
+                "Exact per-tool token counts",
+                "Provider cache-write token counts when Copilot does not emit them",
+                "Explicit compaction / summarization events in debug logs (the dashboard infers context resets from prompt resets/shrinks)",
+                "Exact per-file token attribution",
+                "Exact split between tool payload vs file payload within one tool turn (dashboard uses a mode-aware estimate)",
+                "Ground-truth cost split by tool or file (only estimable)"
+              ],
+              "name": "Not exposed directly by current Copilot telemetry"
+            }
+          ]
+        },
+        "toolCatalog": [],
+        "tools": [],
+        "topChats": [
+          {
+            "cached": 500.0,
+            "cost": 0.009875,
+            "durationMs": 2000.0,
+            "input": 2000.0,
+            "model": "gpt-5.4",
+            "output": 400.0,
+            "promptTokens": 2000.0,
+            "sessionId": "test-shard:session-bbb222",
+            "sessionTitle": "Write CLI dashboard tests",
+            "timestamp": 1735812000500,
+            "title": "chat gpt-5.4",
+            "uncached": 1500.0
+          },
+          {
+            "cached": 100.0,
+            "cost": 0.005730000000000001,
+            "durationMs": 1200.0,
+            "input": 1000.0,
+            "model": "claude-sonnet-4.5",
+            "output": 200.0,
+            "promptTokens": 1000.0,
+            "sessionId": "test-shard:session-aaa111",
+            "sessionTitle": "Fix the login bug",
+            "timestamp": 1735725600500,
+            "title": "chat claude-sonnet-4.5",
+            "uncached": 900.0
+          }
+        ]
+      },
+      "analysisBilled": {
+        "files": [],
+        "models": [
+          {
+            "avgDurationMs": 2000.0,
+            "avgTtftMs": 0.0,
+            "cacheHitRate": 25.0,
+            "cached": 500.0,
+            "cost": 0.009875,
+            "count": 1,
+            "durationMs": 2000.0,
+            "input": 2000.0,
+            "name": "gpt-5.4",
+            "output": 400.0,
+            "sessionCount": 1,
+            "uncached": 1500.0
+          },
+          {
+            "avgDurationMs": 1200.0,
+            "avgTtftMs": 0.0,
+            "cacheHitRate": 10.0,
+            "cached": 100.0,
+            "cost": 0.005730000000000001,
+            "count": 1,
+            "durationMs": 1200.0,
+            "input": 1000.0,
+            "name": "claude-sonnet-4.5",
+            "output": 200.0,
+            "sessionCount": 1,
+            "uncached": 900.0
+          }
+        ],
+        "monthlyTrends": [
+          {
+            "cacheHitRate": 20.0,
+            "cacheResetCount": 0,
+            "chatCallCount": 2,
+            "contextResetCount": 0,
+            "label": "January 2025",
+            "messageCount": 2,
+            "modelCount": 2,
+            "modelNames": [
+              "claude-sonnet-4.5",
+              "gpt-5.4"
+            ],
+            "modelSwitchCount": 0,
+            "monthKey": "2025-01",
+            "peakPromptTokens": 2000.0,
+            "segmentCount": 2,
+            "sessionCount": 2,
+            "toolCallCount": 0,
+            "totals": {
+              "cached": 600.0,
+              "cost": 0.015605,
+              "input": 3000.0,
+              "output": 600.0,
+              "uncached": 2400.0
+            }
+          }
+        ],
+        "overhead": {
+          "assistant_context": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "files": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "system_prompt": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "tool_definitions": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "tools": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "unattributed": {
+            "cached": 600.0,
+            "cost": 0.015605,
+            "input": 3000.0,
+            "output": 600.0,
+            "uncached": 2400.0
+          },
+          "user_messages": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          }
+        },
+        "slowestTools": [],
+        "telemetry": {
+          "entryTypes": {
+            "agent_response": 2,
+            "llm_request": 2,
+            "user_message": 2
+          },
+          "observedFields": [
+            "cachedTokens",
+            "content",
+            "inputMessages",
+            "inputTokens",
+            "model",
+            "outputTokens",
+            "response"
+          ],
+          "sections": [
+            {
+              "items": [
+                "Model name, response ID, debug name",
+                "Cumulative input / output / cached token counters",
+                "Request duration and TTFT",
+                "System prompt file and tool-definition file references",
+                "Full user / assistant / tool message payloads in inputMessages",
+                "Assistant reasoning text when Copilot records it",
+                "Executed tool name, args, result, duration, status",
+                "File paths for read/edit tools when present in args or patch"
+              ],
+              "name": "Observed today"
+            },
+            {
+              "items": [
+                "Exact per-message token counts",
+                "Exact per-tool token counts",
+                "Provider cache-write token counts when Copilot does not emit them",
+                "Explicit compaction / summarization events in debug logs (the dashboard infers context resets from prompt resets/shrinks)",
+                "Exact per-file token attribution",
+                "Exact split between tool payload vs file payload within one tool turn (dashboard uses a mode-aware estimate)",
+                "Ground-truth cost split by tool or file (only estimable)"
+              ],
+              "name": "Not exposed directly by current Copilot telemetry"
+            }
+          ]
+        },
+        "toolCatalog": [],
+        "tools": [],
+        "topChats": [
+          {
+            "cached": 500.0,
+            "cost": 0.009875,
+            "durationMs": 2000.0,
+            "input": 2000.0,
+            "model": "gpt-5.4",
+            "output": 400.0,
+            "promptTokens": 2000.0,
+            "sessionId": "test-shard:session-bbb222",
+            "sessionTitle": "Write CLI dashboard tests",
+            "timestamp": 1735812000500,
+            "title": "chat gpt-5.4",
+            "uncached": 1500.0
+          },
+          {
+            "cached": 100.0,
+            "cost": 0.005730000000000001,
+            "durationMs": 1200.0,
+            "input": 1000.0,
+            "model": "claude-sonnet-4.5",
+            "output": 200.0,
+            "promptTokens": 1000.0,
+            "sessionId": "test-shard:session-aaa111",
+            "sessionTitle": "Fix the login bug",
+            "timestamp": 1735725600500,
+            "title": "chat claude-sonnet-4.5",
+            "uncached": 900.0
+          }
+        ]
+      },
+      "sessionIds": [
+        "test-shard:session-bbb222",
+        "test-shard:session-aaa111"
+      ],
+      "summary": {
+        "aiCredits": 1.5605,
+        "billedCredits": 1.5605,
+        "billedTotals": {
+          "cached": 600.0,
+          "cost": 0.015605,
+          "input": 3000.0,
+          "output": 600.0,
+          "uncached": 2400.0
+        },
+        "cacheHitRate": 20.0,
+        "chatCallCount": 2,
+        "contextResetCount": 0,
+        "messageCount": 2,
+        "modelCount": 2,
+        "modelSwitchCount": 0,
+        "peakPromptTokens": 2000.0,
+        "segmentCount": 2,
+        "sessionCount": 2,
+        "toolCallCount": 0,
+        "totals": {
+          "cached": 600.0,
+          "cost": 0.015605,
+          "input": 3000.0,
+          "output": 600.0,
+          "uncached": 2400.0
+        }
+      }
+    },
+    "default": "monthly",
+    "labels": {
+      "allTime": "All time",
+      "monthly": "August 2026"
+    },
+    "monthly": {
+      "analysis": {
+        "files": [],
+        "models": [],
+        "monthlyTrends": [
+          {
+            "cacheHitRate": 20.0,
+            "cacheResetCount": 0,
+            "chatCallCount": 2,
+            "contextResetCount": 0,
+            "label": "January 2025",
+            "messageCount": 2,
+            "modelCount": 2,
+            "modelNames": [
+              "claude-sonnet-4.5",
+              "gpt-5.4"
+            ],
+            "modelSwitchCount": 0,
+            "monthKey": "2025-01",
+            "peakPromptTokens": 2000.0,
+            "segmentCount": 2,
+            "sessionCount": 2,
+            "toolCallCount": 0,
+            "totals": {
+              "cached": 600.0,
+              "cost": 0.015605,
+              "input": 3000.0,
+              "output": 600.0,
+              "uncached": 2400.0
+            }
+          }
+        ],
+        "overhead": {
+          "assistant_context": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "files": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "system_prompt": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "tool_definitions": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "tools": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "unattributed": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "user_messages": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          }
+        },
+        "slowestTools": [],
+        "telemetry": {
+          "entryTypes": {
+            "agent_response": 2,
+            "llm_request": 2,
+            "user_message": 2
+          },
+          "observedFields": [
+            "cachedTokens",
+            "content",
+            "inputMessages",
+            "inputTokens",
+            "model",
+            "outputTokens",
+            "response"
+          ],
+          "sections": [
+            {
+              "items": [
+                "Model name, response ID, debug name",
+                "Cumulative input / output / cached token counters",
+                "Request duration and TTFT",
+                "System prompt file and tool-definition file references",
+                "Full user / assistant / tool message payloads in inputMessages",
+                "Assistant reasoning text when Copilot records it",
+                "Executed tool name, args, result, duration, status",
+                "File paths for read/edit tools when present in args or patch"
+              ],
+              "name": "Observed today"
+            },
+            {
+              "items": [
+                "Exact per-message token counts",
+                "Exact per-tool token counts",
+                "Provider cache-write token counts when Copilot does not emit them",
+                "Explicit compaction / summarization events in debug logs (the dashboard infers context resets from prompt resets/shrinks)",
+                "Exact per-file token attribution",
+                "Exact split between tool payload vs file payload within one tool turn (dashboard uses a mode-aware estimate)",
+                "Ground-truth cost split by tool or file (only estimable)"
+              ],
+              "name": "Not exposed directly by current Copilot telemetry"
+            }
+          ]
+        },
+        "toolCatalog": [],
+        "tools": [],
+        "topChats": []
+      },
+      "analysisBilled": {
+        "files": [],
+        "models": [],
+        "monthlyTrends": [
+          {
+            "cacheHitRate": 20.0,
+            "cacheResetCount": 0,
+            "chatCallCount": 2,
+            "contextResetCount": 0,
+            "label": "January 2025",
+            "messageCount": 2,
+            "modelCount": 2,
+            "modelNames": [
+              "claude-sonnet-4.5",
+              "gpt-5.4"
+            ],
+            "modelSwitchCount": 0,
+            "monthKey": "2025-01",
+            "peakPromptTokens": 2000.0,
+            "segmentCount": 2,
+            "sessionCount": 2,
+            "toolCallCount": 0,
+            "totals": {
+              "cached": 600.0,
+              "cost": 0.015605,
+              "input": 3000.0,
+              "output": 600.0,
+              "uncached": 2400.0
+            }
+          }
+        ],
+        "overhead": {
+          "assistant_context": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "files": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "system_prompt": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "tool_definitions": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "tools": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "unattributed": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          },
+          "user_messages": {
+            "cached": 0.0,
+            "cost": 0.0,
+            "input": 0.0,
+            "output": 0.0,
+            "uncached": 0.0
+          }
+        },
+        "slowestTools": [],
+        "telemetry": {
+          "entryTypes": {
+            "agent_response": 2,
+            "llm_request": 2,
+            "user_message": 2
+          },
+          "observedFields": [
+            "cachedTokens",
+            "content",
+            "inputMessages",
+            "inputTokens",
+            "model",
+            "outputTokens",
+            "response"
+          ],
+          "sections": [
+            {
+              "items": [
+                "Model name, response ID, debug name",
+                "Cumulative input / output / cached token counters",
+                "Request duration and TTFT",
+                "System prompt file and tool-definition file references",
+                "Full user / assistant / tool message payloads in inputMessages",
+                "Assistant reasoning text when Copilot records it",
+                "Executed tool name, args, result, duration, status",
+                "File paths for read/edit tools when present in args or patch"
+              ],
+              "name": "Observed today"
+            },
+            {
+              "items": [
+                "Exact per-message token counts",
+                "Exact per-tool token counts",
+                "Provider cache-write token counts when Copilot does not emit them",
+                "Explicit compaction / summarization events in debug logs (the dashboard infers context resets from prompt resets/shrinks)",
+                "Exact per-file token attribution",
+                "Exact split between tool payload vs file payload within one tool turn (dashboard uses a mode-aware estimate)",
+                "Ground-truth cost split by tool or file (only estimable)"
+              ],
+              "name": "Not exposed directly by current Copilot telemetry"
+            }
+          ]
+        },
+        "toolCatalog": [],
+        "tools": [],
+        "topChats": []
+      },
+      "label": "August 2026",
+      "monthKey": "2026-08",
+      "sessionIds": [],
+      "summary": {
+        "aiCredits": 0.0,
+        "billedCredits": 0.0,
+        "billedTotals": {
+          "cached": 0.0,
+          "cost": 0.0,
+          "input": 0.0,
+          "output": 0.0,
+          "uncached": 0.0
+        },
+        "cacheHitRate": 0.0,
+        "chatCallCount": 0,
+        "contextResetCount": 0,
+        "messageCount": 0,
+        "modelCount": 0,
+        "modelSwitchCount": 0,
+        "peakPromptTokens": 0.0,
+        "segmentCount": 0,
+        "sessionCount": 0,
+        "toolCallCount": 0,
+        "totals": {
+          "cached": 0.0,
+          "cost": 0.0,
+          "input": 0.0,
+          "output": 0.0,
+          "uncached": 0.0
+        }
+      }
+    }
+  },
+  "sessions": [
+    {
+      "billed_totals": {
+        "cached": 500.0,
+        "cost": 0.009875,
+        "input": 2000.0,
+        "output": 400.0,
+        "uncached": 1500.0
+      },
+      "boundary_counts": {
+        "cache_reset": 0,
+        "context_reset": 0,
+        "model_switch": 0
+      },
+      "cache_hit_rate": 25.0,
+      "chat_count": 1,
+      "duration_ms": 500,
+      "has_full": true,
+      "id": "test-shard:session-bbb222",
+      "message_count": 1,
+      "model": "gpt-5.4",
+      "model_names": [
+        "gpt-5.4"
+      ],
+      "overhead": {
+        "assistant_context": {
+          "cached": 0.0,
+          "cost": 0.0,
+          "input": 0.0,
+          "output": 0.0,
+          "uncached": 0.0
+        },
+        "files": {
+          "cached": 0.0,
+          "cost": 0.0,
+          "input": 0.0,
+          "output": 0.0,
+          "uncached": 0.0
+        },
+        "system_prompt": {
+          "cached": 0.0,
+          "cost": 0.0,
+          "input": 0.0,
+          "output": 0.0,
+          "uncached": 0.0
+        },
+        "tool_definitions": {
+          "cached": 0.0,
+          "cost": 0.0,
+          "input": 0.0,
+          "output": 0.0,
+          "uncached": 0.0
+        },
+        "tools": {
+          "cached": 0.0,
+          "cost": 0.0,
+          "input": 0.0,
+          "output": 0.0,
+          "uncached": 0.0
+        },
+        "unattributed": {
+          "cached": 500.0,
+          "cost": 0.009875,
+          "input": 2000.0,
+          "output": 400.0,
+          "uncached": 1500.0
+        },
+        "user_messages": {
+          "cached": 0.0,
+          "cost": 0.0,
+          "input": 0.0,
+          "output": 0.0,
+          "uncached": 0.0
+        }
+      },
+      "peak_prompt_tokens": 2000.0,
+      "segment_count": 1,
+      "session_id": "session-bbb222",
+      "session_key": "test-shard:session-bbb222",
+      "source_ip": "test-shard",
+      "timestamp": 1735812000000,
+      "title": "Write CLI dashboard tests",
+      "tool_count": 0,
+      "totals": {
+        "cached": 500.0,
+        "cost": 0.009875,
+        "input": 2000.0,
+        "output": 400.0,
+        "uncached": 1500.0
+      }
+    },
+    {
+      "billed_totals": {
+        "cached": 100.0,
+        "cost": 0.005730000000000001,
+        "input": 1000.0,
+        "output": 200.0,
+        "uncached": 900.0
+      },
+      "boundary_counts": {
+        "cache_reset": 0,
+        "context_reset": 0,
+        "model_switch": 0
+      },
+      "cache_hit_rate": 10.0,
+      "chat_count": 1,
+      "duration_ms": 500,
+      "has_full": true,
+      "id": "test-shard:session-aaa111",
+      "message_count": 1,
+      "model": "claude-sonnet-4.5",
+      "model_names": [
+        "claude-sonnet-4.5"
+      ],
+      "overhead": {
+        "assistant_context": {
+          "cached": 0.0,
+          "cost": 0.0,
+          "input": 0.0,
+          "output": 0.0,
+          "uncached": 0.0
+        },
+        "files": {
+          "cached": 0.0,
+          "cost": 0.0,
+          "input": 0.0,
+          "output": 0.0,
+          "uncached": 0.0
+        },
+        "system_prompt": {
+          "cached": 0.0,
+          "cost": 0.0,
+          "input": 0.0,
+          "output": 0.0,
+          "uncached": 0.0
+        },
+        "tool_definitions": {
+          "cached": 0.0,
+          "cost": 0.0,
+          "input": 0.0,
+          "output": 0.0,
+          "uncached": 0.0
+        },
+        "tools": {
+          "cached": 0.0,
+          "cost": 0.0,
+          "input": 0.0,
+          "output": 0.0,
+          "uncached": 0.0
+        },
+        "unattributed": {
+          "cached": 100.0,
+          "cost": 0.005730000000000001,
+          "input": 1000.0,
+          "output": 200.0,
+          "uncached": 900.0
+        },
+        "user_messages": {
+          "cached": 0.0,
+          "cost": 0.0,
+          "input": 0.0,
+          "output": 0.0,
+          "uncached": 0.0
+        }
+      },
+      "peak_prompt_tokens": 1000.0,
+      "segment_count": 1,
+      "session_id": "session-aaa111",
+      "session_key": "test-shard:session-aaa111",
+      "source_ip": "test-shard",
+      "timestamp": 1735725600000,
+      "title": "Fix the login bug",
+      "tool_count": 0,
+      "totals": {
+        "cached": 100.0,
+        "cost": 0.005730000000000001,
+        "input": 1000.0,
+        "output": 200.0,
+        "uncached": 900.0
+      }
+    }
+  ],
+  "summary": {
+    "aiCredits": 1.5605,
+    "billedCredits": 1.5605,
+    "billedTotals": {
+      "cached": 600.0,
+      "cost": 0.015605,
+      "input": 3000.0,
+      "output": 600.0,
+      "uncached": 2400.0
+    },
+    "cacheHitRate": 20.0,
+    "chatCallCount": 2,
+    "contextResetCount": 0,
+    "messageCount": 2,
+    "modelCount": 2,
+    "modelSwitchCount": 0,
+    "peakPromptTokens": 2000.0,
+    "segmentCount": 2,
+    "sessionCount": 2,
+    "toolCallCount": 0,
+    "totals": {
+      "cached": 600.0,
+      "cost": 0.015605,
+      "input": 3000.0,
+      "output": 600.0,
+      "uncached": 2400.0
+    }
+  }
+}

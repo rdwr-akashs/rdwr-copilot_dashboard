@@ -35,8 +35,15 @@ def default_dashboard_cache_root() -> str:
     if configured:
       return os.path.abspath(configured)
 
-    user = os.environ.get("USER") or os.path.basename(os.path.expanduser("~")) or "user"
-    return os.path.join("/mnt/radware", user, "copilot_dashboard_cache")
+    user = os.environ.get("USER") or os.environ.get("USERNAME") or os.path.basename(os.path.expanduser("~")) or "user"
+
+    # Preferred shared location on the Radware Linux hosts this tool was built for.
+    shared_root = os.path.join("/mnt/radware", user, "copilot_dashboard_cache")
+    if os.name == "posix" and os.path.isdir("/mnt/radware"):
+      return shared_root
+
+    # Portable fallback (Windows/Mac/any host without the shared mount).
+    return os.path.join(os.path.expanduser("~"), ".copilot-dashboard", "cache")
 
 
 def sanitize_cache_component(value: str) -> str:

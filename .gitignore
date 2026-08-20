@@ -76,3 +76,21 @@ env/
 ENV/
 .venv/
 
+# Generated dashboard artifacts / local caches
+dashboard.html
+dashboard_test.html
+.dashboard-cache/
+.copilot-logs-placeholder/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ...except the prebuilt web/ front-end bundle, which IS committed so that
+# `python dashboard_core.py` never requires Node/npm to produce the
+# dashboard (see web/README.md). This negation must stay last so it wins
+# over the "dist/" ignore rules above.
+!web/dist/
+!web/dist/**
+

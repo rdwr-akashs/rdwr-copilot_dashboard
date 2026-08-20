@@ -1,0 +1,807 @@
+    /*
+     * Theme contract (read this before touching palette values):
+     *
+     * - Dark is the default palette (defined directly on `:root` below) --
+     *   the existing dark appearance MUST stay pixel-identical unless a
+     *   `data-theme` override or `prefers-color-scheme` media query applies.
+     * - The JS theme toggle sets `document.documentElement.dataset.theme`
+     *   to either `"light"` or `"dark"` (i.e. `<html data-theme="light">` /
+     *   `<html data-theme="dark">`). `:root[data-theme="light"]` below is
+     *   the *only* place the light palette is defined -- it overrides the
+     *   dark custom properties with light-mode equivalents.
+     * - When no explicit `data-theme` attribute is present yet (e.g. first
+     *   paint before JS runs, or a user who has never toggled), we still
+     *   want first-time users to see their OS preference, so a
+     *   `@media (prefers-color-scheme: light)` block (scoped to
+     *   `:root:not([data-theme])`) applies the same light overrides. As
+     *   soon as JS sets `data-theme` explicitly, that attribute always wins
+     *   over the media query (later, explicit selector).
+     * - Every semantic color below (`--blue`, `--green`, `--yellow`,
+     *   `--orange`, `--purple`, `--red`, `--teal`, `--muted`, `--faint`) has
+     *   a light-mode value chosen for legibility on light surfaces, not a
+     *   naive inversion of the dark value. See the light block below for
+     *   the contrast ratios verified against `--bg`/`--panel`.
+     * - `--state-ok` / `--state-warn` / `--state-critical` map to the
+     *   backend's `budget.status` and insight `severity` values
+     *   (`ok`/`warn`/`critical` and `info`/`warn`/`critical` respectively)
+     *   and back the `.state-ok`/`.state-warn`/`.state-critical` utility
+     *   classes in components.css.
+     */
+    :root {
+      --bg: #111318;
+      --panel: #181c23;
+      --panel-2: #1f2530;
+      --panel-3: #252d3a;
+      --border: #303a4a;
+      --text: #e6edf3;
+      --muted: #98a7bd;
+      --faint: #6f8098;
+      --blue: #58a6ff;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --orange: #ff9b50;
+      --purple: #bc8cff;
+      --red: #f85149;
+      --teal: #39c5cf;
+      --shadow: rgba(0, 0, 0, 0.32);
+
+      --state-ok: var(--green);
+      --state-warn: var(--yellow);
+      --state-critical: var(--red);
+
+      --focus-ring: #7fd0ff;
+      --focus-ring-offset: 2px;
+
+      --skeleton-base: rgba(255, 255, 255, 0.06);
+      --skeleton-sheen: rgba(255, 255, 255, 0.14);
+
+      /* Theme-aware overlay tints (subtle hover/border/chip washes). These
+         replace hardcoded rgba(255,255,255,X) literals that would become
+         nearly invisible against the light theme's near-white backgrounds. */
+      --overlay-015: rgba(255, 255, 255, 0.015);
+      --overlay-025: rgba(255, 255, 255, 0.025);
+      --overlay-03: rgba(255, 255, 255, 0.03);
+      --overlay-05: rgba(255, 255, 255, 0.05);
+      --overlay-06: rgba(255, 255, 255, 0.06);
+      --overlay-08: rgba(255, 255, 255, 0.08);
+    }
+
+    /*
+     * Light palette -- a deliberate, independent design, not an inverted
+     * dark theme. Riskiest text/background pairs were checked against WCAG
+     * AA (>= 4.5:1 for body text, >= 3:1 for large text / UI borders):
+     *   --text (#12161c) on --bg (#f5f7fa)      -> ~15.5:1
+     *   --text (#12161c) on --panel (#ffffff)   -> ~17.5:1
+     *   --muted (#4b5a70) on --panel (#ffffff)  -> ~7.3:1
+     *   --faint (#6b7a90) on --panel (#ffffff)  -> ~4.6:1
+     *   --blue  (#0969da) on --panel (#ffffff)  -> ~5.6:1
+     *   --green (#1a7f37) on --panel (#ffffff)  -> ~5.1:1
+     *   --yellow(#9a6700) on --panel (#ffffff)  -> ~4.8:1
+     *   --orange(#bc4c00) on --panel (#ffffff)  -> ~5.4:1
+     *   --purple(#8250df) on --panel (#ffffff)  -> ~4.9:1
+     *   --red   (#cf222e) on --panel (#ffffff)  -> ~5.5:1
+     *   --teal  (#0f7b8a) on --panel (#ffffff)  -> ~4.7:1
+     *   --border(#d0d7e2) on --panel (#ffffff)  -> ~1.4:1 luminance step,
+     *     used only for hairline separators (not required to hit 3:1),
+     *     while --faint is used wherever a border needs to carry meaning.
+     */
+    :root[data-theme="light"] {
+      --bg: #f5f7fa;
+      --panel: #ffffff;
+      --panel-2: #eef1f6;
+      --panel-3: #e3e8f0;
+      --border: #d0d7e2;
+      --text: #12161c;
+      --muted: #4b5a70;
+      --faint: #6b7a90;
+      --blue: #0969da;
+      --green: #1a7f37;
+      --yellow: #9a6700;
+      --orange: #bc4c00;
+      --purple: #8250df;
+      --red: #cf222e;
+      --teal: #0f7b8a;
+      --shadow: rgba(16, 24, 40, 0.12);
+
+      --state-ok: var(--green);
+      --state-warn: var(--yellow);
+      --state-critical: var(--red);
+
+      --focus-ring: #0969da;
+      --skeleton-base: rgba(15, 23, 42, 0.06);
+      --skeleton-sheen: rgba(15, 23, 42, 0.12);
+
+      --overlay-015: rgba(15, 23, 42, 0.03);
+      --overlay-025: rgba(15, 23, 42, 0.04);
+      --overlay-03: rgba(15, 23, 42, 0.05);
+      --overlay-05: rgba(15, 23, 42, 0.07);
+      --overlay-06: rgba(15, 23, 42, 0.08);
+      --overlay-08: rgba(15, 23, 42, 0.12);
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme]) {
+        --bg: #f5f7fa;
+        --panel: #ffffff;
+        --panel-2: #eef1f6;
+        --panel-3: #e3e8f0;
+        --border: #d0d7e2;
+        --text: #12161c;
+        --muted: #4b5a70;
+        --faint: #6b7a90;
+        --blue: #0969da;
+        --green: #1a7f37;
+        --yellow: #9a6700;
+        --orange: #bc4c00;
+        --purple: #8250df;
+        --red: #cf222e;
+        --teal: #0f7b8a;
+        --shadow: rgba(16, 24, 40, 0.12);
+
+        --state-ok: var(--green);
+        --state-warn: var(--yellow);
+        --state-critical: var(--red);
+
+        --focus-ring: #0969da;
+        --skeleton-base: rgba(15, 23, 42, 0.06);
+        --skeleton-sheen: rgba(15, 23, 42, 0.12);
+
+        --overlay-015: rgba(15, 23, 42, 0.03);
+        --overlay-025: rgba(15, 23, 42, 0.04);
+        --overlay-03: rgba(15, 23, 42, 0.05);
+        --overlay-05: rgba(15, 23, 42, 0.07);
+        --overlay-06: rgba(15, 23, 42, 0.08);
+        --overlay-08: rgba(15, 23, 42, 0.12);
+      }
+    }
+    * { box-sizing: border-box; }
+    html { color-scheme: dark; }
+    html[data-theme="light"] { color-scheme: light; }
+    @media (prefers-color-scheme: light) {
+      html:not([data-theme]) { color-scheme: light; }
+    }
+    body {
+      margin: 0;
+      padding: 24px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+    button, input, select, textarea { font: inherit; }
+    .app { display: flex; flex-direction: column; gap: 18px; }
+
+    /* Accessible focus rings: every interactive element gets a visible,
+       high-contrast ring only for keyboard/programmatic focus (not mouse
+       clicks), via :focus-visible. */
+    a, button, input, select, textarea, summary,
+    [tabindex]:not([tabindex="-1"]) {
+      outline-color: var(--focus-ring);
+    }
+    a:focus-visible,
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible,
+    summary:focus-visible,
+    [tabindex]:not([tabindex="-1"]):focus-visible {
+      outline: 3px solid var(--focus-ring);
+      outline-offset: var(--focus-ring-offset);
+      border-radius: 4px;
+    }
+    /* Suppress default focus rectangles for mouse users while keeping the
+       keyboard ring above; browsers without :focus-visible support still
+       get the plain :focus outline as a fallback. */
+    a:focus:not(:focus-visible),
+    button:focus:not(:focus-visible),
+    input:focus:not(:focus-visible),
+    select:focus:not(:focus-visible),
+    textarea:focus:not(:focus-visible),
+    summary:focus:not(:focus-visible) {
+      outline: none;
+    }
+    summary { cursor: pointer; }
+
+    /* Reusable async/empty state hooks other modules can adopt without
+       writing their own CSS. */
+    .is-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 32px 16px;
+      color: var(--muted);
+      text-align: center;
+    }
+    .is-loading { position: relative; pointer-events: none; opacity: 0.7; }
+    @keyframes skeleton-sheen {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    .skeleton {
+      display: block;
+      border-radius: 8px;
+      color: transparent !important;
+      background: linear-gradient(
+        100deg,
+        var(--skeleton-base) 30%,
+        var(--skeleton-sheen) 50%,
+        var(--skeleton-base) 70%
+      );
+      background-size: 200% 100%;
+      animation: skeleton-sheen 1.4s ease-in-out infinite;
+    }
+    .skeleton * { visibility: hidden; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+      }
+      .skeleton { animation: none; background: var(--skeleton-base); }
+    }
+    .header {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-top: 3px solid var(--blue);
+      border-radius: 14px;
+      padding: 22px 24px 20px;
+    }
+    .header-top { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+    .header h1 { margin: 0; font-size: 1.5rem; }
+    .subtitle { color: var(--muted); margin-top: 6px; }
+    .summary-groups { margin-top: 20px; display: flex; flex-direction: column; gap: 16px; }
+    .summary-group-label {
+      color: var(--faint);
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 8px;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+    }
+    .summary-card {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+    }
+    .summary-card .label { color: var(--muted); font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .summary-card .value { margin-top: 6px; font-size: 1.25rem; font-weight: 650; }
+    .value.input { color: var(--blue); }
+    .value.output { color: var(--orange); }
+    .value.cached { color: var(--green); }
+    .value.cost { color: var(--teal); }
+    .value.credits { color: var(--yellow); }
+    .tabs {
+      display: flex;
+      gap: 6px;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .tab-button {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      padding: 9px 16px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: 0.15s ease;
+    }
+    .tab-button:hover { background: var(--overlay-05); color: var(--text); }
+    .tab-button.active { background: var(--overlay-08); color: var(--blue); border-color: var(--blue); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px;
+    }
+    .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+    .filter-bar input, .filter-bar select {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      color: var(--text);
+    }
+    .filter-bar input { flex: 1 1 260px; min-width: 220px; }
+    .legend { color: var(--muted); font-size: 0.9rem; }
+
+    /* Sticky global filter bar. The JS agent may mark either the bar
+       itself or a wrapper element with `.filter-bar-sticky` (or the
+       generic `.is-sticky` hook) -- both are supported so this works
+       regardless of which node they choose to stick. z-index sits above
+       ordinary cards/panels but below modal-backdrop (1000). Styled as a
+       distinct rounded toolbar (not a bare row of floating controls) so it
+       reads as its own module between the header title and the summary
+       cards, with clear breathing room on both sides. */
+    .filter-bar-sticky,
+    .is-sticky {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin: 16px 0 4px;
+      align-items: center;
+      transition: box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+    /* Once actually pinned to the top (JS toggles this class via an
+       IntersectionObserver/scroll listener), show a subtle shadow/border
+       so the stuck state reads as "elevated". */
+    .filter-bar-sticky.is-stuck,
+    .is-sticky.is-stuck {
+      box-shadow: 0 8px 18px var(--shadow);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
+    .session-list { display: flex; flex-direction: column; gap: 10px; }
+    details.session-card, details.event-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    details.session-card[open] { border-color: rgba(88, 166, 255, 0.45); }
+    details.event-card[open] { border-color: rgba(188, 140, 255, 0.38); }
+    .session-summary-row, .event-summary-row {
+      list-style: none;
+      cursor: pointer;
+      display: grid;
+      gap: 12px;
+      align-items: center;
+      padding: 14px 16px;
+      grid-template-columns: minmax(260px, 2.4fr) minmax(120px, 1fr) minmax(90px, .8fr) repeat(4, minmax(88px, .7fr));
+    }
+    .session-summary-row:hover, .event-summary-row:hover { background: var(--overlay-025); }
+    summary::-webkit-details-marker { display: none; }
+    .title-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .title-line { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+    .title-text { font-weight: 650; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .subtext { color: var(--muted); font-size: 0.85rem; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .badge.model { background: rgba(188, 140, 255, 0.14); color: var(--purple); border-color: rgba(188, 140, 255, 0.28); }
+    .badge.user { background: rgba(88, 166, 255, 0.14); color: var(--blue); border-color: rgba(88, 166, 255, 0.28); }
+    .badge.tool { background: rgba(210, 153, 34, 0.16); color: var(--yellow); border-color: rgba(210, 153, 34, 0.28); }
+    .badge.source { background: var(--overlay-06); color: var(--muted); border-color: var(--overlay-08); }
+    .badge.chat { background: rgba(57, 197, 207, 0.14); color: var(--teal); border-color: rgba(57, 197, 207, 0.28); }
+    .badge.boundary { background: rgba(248, 81, 73, 0.14); color: var(--red); border-color: rgba(248, 81, 73, 0.28); }
+    .badge.mode-read { background: rgba(63, 185, 80, 0.14); color: var(--green); border-color: rgba(63, 185, 80, 0.28); }
+    .badge.mode-edit { background: rgba(248, 81, 73, 0.14); color: var(--red); border-color: rgba(248, 81, 73, 0.28); }
+    .badge.confidence-high { background: rgba(63, 185, 80, 0.14); color: var(--green); border-color: rgba(63, 185, 80, 0.28); }
+    .badge.confidence-medium { background: rgba(210, 153, 34, 0.14); color: var(--yellow); border-color: rgba(210, 153, 34, 0.28); }
+    .badge.confidence-low { background: var(--overlay-06); color: var(--muted); border-color: var(--overlay-08); }
+    .stat-col { text-align: right; font-variant-numeric: tabular-nums; }
+    .stat-col .label { color: var(--faint); font-size: 0.72rem; text-transform: uppercase; }
+    .stat-col .value { font-size: 0.96rem; font-weight: 650; }
+    .stat-col .value.input { color: var(--blue); }
+    .stat-col .value.output { color: var(--orange); }
+    .stat-col .value.cached { color: var(--green); }
+    .stat-col .value.cost { color: var(--teal); }
+    .value.uncached { color: var(--yellow); }
+    .session-body, .event-body {
+      border-top: 1px solid var(--overlay-06);
+      background: var(--overlay-015);
+      padding: 16px;
+    }
+    .session-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .meta-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+    .meta-card .label { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; }
+    .meta-card .value { margin-top: 4px; font-weight: 700; }
+    .timeline { display: flex; flex-direction: column; gap: 10px; }
+    .event-body-grid { display: grid; gap: 12px; }
+    .event-section { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+    .event-section h4 { margin: 0 0 8px 0; font-size: 0.95rem; }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.82rem;
+      color: var(--text);
+      max-height: 460px;
+      overflow: auto;
+      line-height: 1.45;
+    }
+    .message-list { display: flex; flex-direction: column; gap: 10px; }
+    .message-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+    .message-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+    .message-parts { display: flex; flex-direction: column; gap: 8px; }
+    .part-card { background: var(--overlay-025); border: 1px solid var(--overlay-05); border-radius: 10px; padding: 10px; }
+    .part-label { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; margin-bottom: 6px; }
+    .genai-button {
+      border: 1px solid rgba(88, 166, 255, 0.45);
+      background: rgba(88, 166, 255, 0.12);
+      color: var(--blue);
+      padding: 6px 10px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .genai-button:hover { background: rgba(88, 166, 255, 0.18); }
+
+    /* ---- Shared action-chip buttons ----
+       Replaces the repeated per-button inline `style="border:...;background:
+       rgba(...)...` blocks (Show full chat / Compare models / Export /
+       Delete / Restore) scattered across tab-chats.js, tab-cli.js and
+       modals.js with one reusable, theme-safe component: a pill button in a
+       flat, muted state by default with a colored accent border, filling
+       solid on hover. Use `.action-chip` + one modifier
+       (`--blue|--purple|--teal|--red`). */
+    .action-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.82rem;
+      transition: 0.15s ease;
+    }
+    .action-chip:hover { background: var(--overlay-08); }
+    .action-chip--blue { border-color: var(--blue); color: var(--blue); }
+    .action-chip--purple { border-color: var(--purple); color: var(--purple); }
+    .action-chip--teal { border-color: var(--teal); color: var(--teal); }
+    .action-chip--red { border-color: var(--red); color: var(--red); }
+
+
+    /* ---- State utility classes (backend budget.status / insight severity) ----
+       Colour is never the only signal: each state also carries a distinct
+       left border weight + a reserved icon slot (::before) so meaning
+       survives for colour-blind users or when printed in grayscale. */
+    .state-ok, .state-warn, .state-critical {
+      border-left-width: 4px;
+      border-left-style: solid;
+    }
+    .state-ok { border-left-color: var(--state-ok); }
+    .state-warn { border-left-color: var(--state-warn); }
+    .state-critical { border-left-color: var(--state-critical); }
+    .state-ok::before, .state-warn::before, .state-critical::before {
+      display: inline-block;
+      width: 1em;
+      font-weight: 800;
+      margin-right: 4px;
+      text-align: center;
+    }
+    .state-ok::before { content: "\2713"; color: var(--state-ok); }
+    .state-warn::before { content: "\26A0"; color: var(--state-warn); }
+    .state-critical::before { content: "\2715"; color: var(--state-critical); }
+
+    /* Insight cards tinted by severity (info/warn/critical), built on the
+       existing .insight-card. `.severity-info` intentionally reuses the
+       neutral card look (no tint) so only warn/critical stand out. */
+    .insight-card.severity-warn,
+    .insight-card.state-warn {
+      background: rgba(210, 153, 34, 0.08);
+      border-color: rgba(210, 153, 34, 0.35);
+    }
+    .insight-card.severity-critical,
+    .insight-card.state-critical {
+      background: rgba(248, 81, 73, 0.08);
+      border-color: rgba(248, 81, 73, 0.4);
+    }
+
+    /* ---- Quota/budget gauge bar ---- */
+    .gauge {
+      width: 100%;
+      height: 12px;
+      border-radius: 999px;
+      background: var(--panel-3);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .gauge-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: var(--state-ok);
+      transition: width 0.3s ease, background-color 0.3s ease;
+      min-width: 2px;
+    }
+    .gauge.state-ok .gauge-fill, .gauge-fill.state-ok { background: var(--state-ok); }
+    .gauge.state-warn .gauge-fill, .gauge-fill.state-warn { background: var(--state-warn); }
+    .gauge.state-critical .gauge-fill, .gauge-fill.state-critical { background: var(--state-critical); }
+    .gauge-label { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--muted); margin-top: 6px; }
+
+    /* ---- Copy-to-clipboard buttons + code/setup blocks (OTel panel) ---- */
+    .copy-button {
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-weight: 650;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .copy-button:hover { border-color: var(--blue); color: var(--blue); }
+    .copy-button.copied { border-color: var(--green); color: var(--green); }
+    .code-block {
+      position: relative;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .code-block .copy-button { position: absolute; top: 8px; right: 8px; }
+    .code-block pre, .code-block code { background: transparent; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: var(--panel-3);
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
+    .analysis-grid { display: grid; gap: 18px; }
+    .analysis-subtabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+    .subtab-button { border: 1px solid var(--border); background: var(--panel-2); color: var(--text); border-radius: 999px; padding: 8px 12px; cursor: pointer; }
+    .subtab-button.active { background: var(--purple); color: #12071e; border-color: var(--purple); font-weight: 700; }
+    .section-title { margin: 0 0 10px 0; font-size: 1.1rem; }
+    .section-subtitle { color: var(--muted); margin-bottom: 12px; }
+    .pagination { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+    .pagination-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .pagination button, .sort-button { border: 1px solid var(--border); background: var(--panel-2); color: var(--text); padding: 8px 12px; border-radius: 10px; cursor: pointer; }
+    .pagination button:disabled { opacity: 0.45; cursor: default; }
+    .sort-button.active { border-color: var(--blue); color: var(--blue); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { border-bottom: 1px solid var(--overlay-06); padding: 10px 8px; text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    th button { all: unset; cursor: pointer; color: inherit; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .compact-prices-wrap { overflow-x: auto; }
+    .compact-prices-table { width: auto; min-width: 540px; font-size: 0.84rem; }
+    .compact-prices-table th, .compact-prices-table td { padding: 6px 8px; text-align: left; white-space: nowrap; }
+    .compact-prices-table td strong { font-weight: 650; }
+    .tool-catalog-controls { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:center; }
+    .tool-catalog-controls input, .tool-catalog-controls select {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      color: var(--text);
+    }
+    .tool-catalog-controls input { min-width: 220px; flex: 1 1 240px; }
+    tr.clickable-row { cursor: pointer; }
+    tr.clickable-row:hover { background: var(--overlay-03); }
+    .pill-list { display: flex; gap: 6px; flex-wrap: wrap; }
+    .pill { background: var(--overlay-06); border: 1px solid var(--overlay-08); border-radius: 999px; padding: 3px 8px; font-size: 0.75rem; color: var(--muted); }
+    .note { color: var(--muted); font-size: 0.88rem; }
+    .insights-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+    details.collapsible-section > summary { list-style: none; }
+    details.collapsible-section > summary::-webkit-details-marker { display: none; }
+    details.collapsible-section { border-radius: 18px; }
+    .insight-card h4 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+    .insight-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+    .insight-card h4 { margin: 0 0 10px 0; }
+
+    /* ---- Segmented control (source/period filter groups) ----
+       Reuses the .subtab-button pill look since that's the closest
+       existing visual language; `.segmented-control` is just a flex
+       wrapper so any group of .subtab-button-style toggles lines up
+       consistently without extra markup requirements. */
+    .segmented-control {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      flex-wrap: wrap;
+    }
+    .segmented-control .subtab-button,
+    .segmented-control button {
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 0.85rem;
+    }
+
+    /* ---- Generic wide-table scroll affordance ----
+       Default responsive approach for dense rollup/data tables (top
+       models/repos/hosts/developers, efficiency tables, etc.): wrap the
+       <table> in `.table-scroll` to get a horizontal scroll container with
+       a visible edge-fade affordance rather than squeezing columns.
+       Narrower, few-column tables can instead opt into `.table-collapse`
+       for a data-label card layout at small widths (see responsive.css). */
+    .table-scroll {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      border-radius: 12px;
+      position: relative;
+      background:
+        linear-gradient(to right, var(--panel) 0%, transparent 2%),
+        linear-gradient(to left, var(--panel) 0%, transparent 2%) right,
+        linear-gradient(to right, var(--shadow) 0%, transparent 6%),
+        linear-gradient(to left, var(--shadow) 0%, transparent 6%) right;
+      background-repeat: no-repeat;
+      background-size: 24px 100%, 24px 100%, 12px 100%, 12px 100%;
+      background-attachment: local, local, scroll, scroll;
+    }
+    .table-scroll table { min-width: 560px; }
+    .rollup-table td strong, .rollup-table th { white-space: nowrap; }
+    .chart-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+    .chart-svg { width: 100%; height: 260px; display: block; }
+    .chart-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; color: var(--muted); font-size: 0.82rem; }
+    .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+    .legend-swatch { width: 14px; height: 4px; border-radius: 999px; display: inline-block; }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.62);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 1000;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      width: min(1180px, 96vw);
+      max-height: 92vh;
+      overflow: hidden;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: 0 18px 46px rgba(0,0,0,0.48);
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-header { padding: 16px 18px; border-bottom: 1px solid var(--overlay-06); display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+    .modal-header h3 { margin: 0 0 6px 0; }
+    .modal-actions button {
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+    .modal-body { overflow: auto; padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 14px; }
+    .modal-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .modal-tab { border: 1px solid var(--border); background: var(--panel-2); color: var(--text); border-radius: 999px; padding: 8px 12px; cursor: pointer; }
+    .modal-tab.active { background: var(--teal); color: #041114; border-color: var(--teal); font-weight: 700; }
+    .modal-panel { display: none; }
+    .modal-panel.active { display: block; }
+    .split-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .help-list { margin: 0; padding-left: 18px; }
+    .help-list li { margin: 6px 0; }
+    .small { font-size: 0.82rem; }
+    @media (max-width: 1100px) {
+      .session-summary-row, .event-summary-row {
+        grid-template-columns: minmax(220px, 1.8fr) minmax(110px, .9fr) minmax(90px, .7fr) repeat(2, minmax(90px, .8fr));
+      }
+      .stat-col.hide-mobile { display: none; }
+      .split-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 760px) {
+      body { padding: 14px; }
+      .session-summary-row, .event-summary-row { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
+      .stat-col { text-align: left; }
+      .title-line { gap: 8px; }
+    }
+
+    /* ---- Additional breakpoints: ~1200 / ~900 / ~640 ----
+       These layer on top of the existing 1100/760 rules above (kept for
+       compatibility with already-shipped markup) and cover the header,
+       grids, and the new wide-table collapse pattern. */
+
+    @media (max-width: 1200px) {
+      .summary-grid { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+      .insights-grid { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+    }
+
+    @media (max-width: 900px) {
+      body { padding: 16px; }
+      .header { padding: 16px; }
+      .header-top { flex-direction: column; gap: 12px; }
+      .tabs { gap: 6px; }
+      .tab-button { padding: 8px 12px; font-size: 0.92rem; }
+      .summary-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+      .filter-bar { gap: 8px; }
+      .filter-bar-sticky, .is-sticky {
+        padding-top: 8px;
+        padding-bottom: 8px;
+      }
+      .split-grid { grid-template-columns: 1fr; }
+      .chart-svg { height: 200px; }
+    }
+
+    @media (max-width: 640px) {
+      body { padding: 12px; }
+      .header { border-radius: 14px; padding: 14px; }
+      .header h1 { font-size: 1.3rem; }
+      .summary-grid { grid-template-columns: 1fr 1fr; }
+      .insights-grid { grid-template-columns: 1fr; }
+      .session-list { gap: 8px; }
+      .filter-bar { flex-direction: column; align-items: stretch; }
+      .filter-bar input, .filter-bar select { flex: 1 1 auto; min-width: 0; width: 100%; }
+      .modal { width: 100vw; max-height: 100vh; border-radius: 0; }
+      .modal-body { padding: 12px 14px 14px; }
+      .pagination { flex-direction: column; align-items: stretch; }
+      .segmented-control { width: 100%; justify-content: center; }
+    }
+
+    /* ---- Touch targets: interactive controls stay >=44x44px on
+       small/touch screens without inflating desktop density. ---- */
+    @media (max-width: 900px) {
+      button, .tab-button, .subtab-button, .sort-button, .modal-tab,
+      .pagination button, .copy-button, .genai-button,
+      .filter-bar input, .filter-bar select,
+      .tool-catalog-controls input, .tool-catalog-controls select {
+        min-height: 44px;
+      }
+      summary, .session-summary-row, .event-summary-row {
+        min-height: 44px;
+      }
+    }
+
+    /* ---- Wide-table collapse-to-cards ----
+       Opt-in via `.table-collapse` on a <table>: rows become blocks and
+       each <td> reflows as a label/value pair using its `data-label`
+       attribute (set by the JS agent per-cell), which is a better fit for
+       tables with few, meaningfully-named columns (e.g. efficiency,
+       top-models/repos/hosts rollups) than horizontal scrolling. Wider,
+       many-column tables should use `.table-scroll` (see tabs.css)
+       instead -- that keeps column alignment intact for side-by-side
+       numeric comparison, which collapsing would lose. */
+    @media (max-width: 760px) {
+      table.table-collapse thead { display: none; }
+      table.table-collapse, table.table-collapse tbody, table.table-collapse tr, table.table-collapse td {
+        display: block;
+        width: 100%;
+      }
+      table.table-collapse tr {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        margin-bottom: 10px;
+        padding: 8px 10px;
+        background: var(--panel-2);
+      }
+      table.table-collapse td {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid var(--overlay-06);
+        padding: 8px 2px;
+        text-align: right;
+      }
+      table.table-collapse td:last-child { border-bottom: none; }
+      table.table-collapse td::before {
+        content: attr(data-label);
+        color: var(--muted);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        text-align: left;
+        margin-right: auto;
+      }
+    }

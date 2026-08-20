@@ -1,0 +1,90 @@
+    * { box-sizing: border-box; }
+    html { color-scheme: dark; }
+    html[data-theme="light"] { color-scheme: light; }
+    @media (prefers-color-scheme: light) {
+      html:not([data-theme]) { color-scheme: light; }
+    }
+    body {
+      margin: 0;
+      padding: 24px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+    button, input, select, textarea { font: inherit; }
+    .app { display: flex; flex-direction: column; gap: 18px; }
+
+    /* Accessible focus rings: every interactive element gets a visible,
+       high-contrast ring only for keyboard/programmatic focus (not mouse
+       clicks), via :focus-visible. */
+    a, button, input, select, textarea, summary,
+    [tabindex]:not([tabindex="-1"]) {
+      outline-color: var(--focus-ring);
+    }
+    a:focus-visible,
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible,
+    summary:focus-visible,
+    [tabindex]:not([tabindex="-1"]):focus-visible {
+      outline: 3px solid var(--focus-ring);
+      outline-offset: var(--focus-ring-offset);
+      border-radius: 4px;
+    }
+    /* Suppress default focus rectangles for mouse users while keeping the
+       keyboard ring above; browsers without :focus-visible support still
+       get the plain :focus outline as a fallback. */
+    a:focus:not(:focus-visible),
+    button:focus:not(:focus-visible),
+    input:focus:not(:focus-visible),
+    select:focus:not(:focus-visible),
+    textarea:focus:not(:focus-visible),
+    summary:focus:not(:focus-visible) {
+      outline: none;
+    }
+    summary { cursor: pointer; }
+
+    /* Reusable async/empty state hooks other modules can adopt without
+       writing their own CSS. */
+    .is-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 32px 16px;
+      color: var(--muted);
+      text-align: center;
+    }
+    .is-loading { position: relative; pointer-events: none; opacity: 0.7; }
+    @keyframes skeleton-sheen {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    .skeleton {
+      display: block;
+      border-radius: 8px;
+      color: transparent !important;
+      background: linear-gradient(
+        100deg,
+        var(--skeleton-base) 30%,
+        var(--skeleton-sheen) 50%,
+        var(--skeleton-base) 70%
+      );
+      background-size: 200% 100%;
+      animation: skeleton-sheen 1.4s ease-in-out infinite;
+    }
+    .skeleton * { visibility: hidden; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+      }
+      .skeleton { animation: none; background: var(--skeleton-base); }
+    }

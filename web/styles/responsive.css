@@ -1,0 +1,111 @@
+    .small { font-size: 0.82rem; }
+    @media (max-width: 1100px) {
+      .session-summary-row, .event-summary-row {
+        grid-template-columns: minmax(220px, 1.8fr) minmax(110px, .9fr) minmax(90px, .7fr) repeat(2, minmax(90px, .8fr));
+      }
+      .stat-col.hide-mobile { display: none; }
+      .split-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 760px) {
+      body { padding: 14px; }
+      .session-summary-row, .event-summary-row { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
+      .stat-col { text-align: left; }
+      .title-line { gap: 8px; }
+    }
+
+    /* ---- Additional breakpoints: ~1200 / ~900 / ~640 ----
+       These layer on top of the existing 1100/760 rules above (kept for
+       compatibility with already-shipped markup) and cover the header,
+       grids, and the new wide-table collapse pattern. */
+
+    @media (max-width: 1200px) {
+      .summary-grid { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+      .insights-grid { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+    }
+
+    @media (max-width: 900px) {
+      body { padding: 16px; }
+      .header { padding: 16px; }
+      .header-top { flex-direction: column; gap: 12px; }
+      .tabs { gap: 6px; }
+      .tab-button { padding: 8px 12px; font-size: 0.92rem; }
+      .summary-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+      .filter-bar { gap: 8px; }
+      .filter-bar-sticky, .is-sticky {
+        padding-top: 8px;
+        padding-bottom: 8px;
+      }
+      .split-grid { grid-template-columns: 1fr; }
+      .chart-svg { height: 200px; }
+    }
+
+    @media (max-width: 640px) {
+      body { padding: 12px; }
+      .header { border-radius: 14px; padding: 14px; }
+      .header h1 { font-size: 1.3rem; }
+      .summary-grid { grid-template-columns: 1fr 1fr; }
+      .insights-grid { grid-template-columns: 1fr; }
+      .session-list { gap: 8px; }
+      .filter-bar { flex-direction: column; align-items: stretch; }
+      .filter-bar input, .filter-bar select { flex: 1 1 auto; min-width: 0; width: 100%; }
+      .modal { width: 100vw; max-height: 100vh; border-radius: 0; }
+      .modal-body { padding: 12px 14px 14px; }
+      .pagination { flex-direction: column; align-items: stretch; }
+      .segmented-control { width: 100%; justify-content: center; }
+    }
+
+    /* ---- Touch targets: interactive controls stay >=44x44px on
+       small/touch screens without inflating desktop density. ---- */
+    @media (max-width: 900px) {
+      button, .tab-button, .subtab-button, .sort-button, .modal-tab,
+      .pagination button, .copy-button, .genai-button,
+      .filter-bar input, .filter-bar select,
+      .tool-catalog-controls input, .tool-catalog-controls select {
+        min-height: 44px;
+      }
+      summary, .session-summary-row, .event-summary-row {
+        min-height: 44px;
+      }
+    }
+
+    /* ---- Wide-table collapse-to-cards ----
+       Opt-in via `.table-collapse` on a <table>: rows become blocks and
+       each <td> reflows as a label/value pair using its `data-label`
+       attribute (set by the JS agent per-cell), which is a better fit for
+       tables with few, meaningfully-named columns (e.g. efficiency,
+       top-models/repos/hosts rollups) than horizontal scrolling. Wider,
+       many-column tables should use `.table-scroll` (see tabs.css)
+       instead -- that keeps column alignment intact for side-by-side
+       numeric comparison, which collapsing would lose. */
+    @media (max-width: 760px) {
+      table.table-collapse thead { display: none; }
+      table.table-collapse, table.table-collapse tbody, table.table-collapse tr, table.table-collapse td {
+        display: block;
+        width: 100%;
+      }
+      table.table-collapse tr {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        margin-bottom: 10px;
+        padding: 8px 10px;
+        background: var(--panel-2);
+      }
+      table.table-collapse td {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid var(--overlay-06);
+        padding: 8px 2px;
+        text-align: right;
+      }
+      table.table-collapse td:last-child { border-bottom: none; }
+      table.table-collapse td::before {
+        content: attr(data-label);
+        color: var(--muted);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        text-align: left;
+        margin-right: auto;
+      }
+    }

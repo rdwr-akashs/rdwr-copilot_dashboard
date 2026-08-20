@@ -1,0 +1,13 @@
+{
+  "name": "copilot-token-dashboard-web",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Build pipeline for the Copilot Token Dashboard front-end (web/) bundled into web/dist/ and inlined by html_generation.py into a single self-contained HTML file.",
+  "scripts": {
+    "build": "node web/build.js",
+    "watch": "node web/build.js --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2"
+  }
+}

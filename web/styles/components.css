@@ -1,0 +1,212 @@
+    .session-list { display: flex; flex-direction: column; gap: 10px; }
+    details.session-card, details.event-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    details.session-card[open] { border-color: rgba(88, 166, 255, 0.45); }
+    details.event-card[open] { border-color: rgba(188, 140, 255, 0.38); }
+    .session-summary-row, .event-summary-row {
+      list-style: none;
+      cursor: pointer;
+      display: grid;
+      gap: 12px;
+      align-items: center;
+      padding: 14px 16px;
+      grid-template-columns: minmax(260px, 2.4fr) minmax(120px, 1fr) minmax(90px, .8fr) repeat(4, minmax(88px, .7fr));
+    }
+    .session-summary-row:hover, .event-summary-row:hover { background: var(--overlay-025); }
+    summary::-webkit-details-marker { display: none; }
+    .title-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .title-line { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+    .title-text { font-weight: 650; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .subtext { color: var(--muted); font-size: 0.85rem; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .badge.model { background: rgba(188, 140, 255, 0.14); color: var(--purple); border-color: rgba(188, 140, 255, 0.28); }
+    .badge.user { background: rgba(88, 166, 255, 0.14); color: var(--blue); border-color: rgba(88, 166, 255, 0.28); }
+    .badge.tool { background: rgba(210, 153, 34, 0.16); color: var(--yellow); border-color: rgba(210, 153, 34, 0.28); }
+    .badge.source { background: var(--overlay-06); color: var(--muted); border-color: var(--overlay-08); }
+    .badge.chat { background: rgba(57, 197, 207, 0.14); color: var(--teal); border-color: rgba(57, 197, 207, 0.28); }
+    .badge.boundary { background: rgba(248, 81, 73, 0.14); color: var(--red); border-color: rgba(248, 81, 73, 0.28); }
+    .badge.mode-read { background: rgba(63, 185, 80, 0.14); color: var(--green); border-color: rgba(63, 185, 80, 0.28); }
+    .badge.mode-edit { background: rgba(248, 81, 73, 0.14); color: var(--red); border-color: rgba(248, 81, 73, 0.28); }
+    .badge.confidence-high { background: rgba(63, 185, 80, 0.14); color: var(--green); border-color: rgba(63, 185, 80, 0.28); }
+    .badge.confidence-medium { background: rgba(210, 153, 34, 0.14); color: var(--yellow); border-color: rgba(210, 153, 34, 0.28); }
+    .badge.confidence-low { background: var(--overlay-06); color: var(--muted); border-color: var(--overlay-08); }
+    .stat-col { text-align: right; font-variant-numeric: tabular-nums; }
+    .stat-col .label { color: var(--faint); font-size: 0.72rem; text-transform: uppercase; }
+    .stat-col .value { font-size: 0.96rem; font-weight: 650; }
+    .stat-col .value.input { color: var(--blue); }
+    .stat-col .value.output { color: var(--orange); }
+    .stat-col .value.cached { color: var(--green); }
+    .stat-col .value.cost { color: var(--teal); }
+    .value.uncached { color: var(--yellow); }
+    .session-body, .event-body {
+      border-top: 1px solid var(--overlay-06);
+      background: var(--overlay-015);
+      padding: 16px;
+    }
+    .session-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .meta-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+    .meta-card .label { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; }
+    .meta-card .value { margin-top: 4px; font-weight: 700; }
+    .timeline { display: flex; flex-direction: column; gap: 10px; }
+    .event-body-grid { display: grid; gap: 12px; }
+    .event-section { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+    .event-section h4 { margin: 0 0 8px 0; font-size: 0.95rem; }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.82rem;
+      color: var(--text);
+      max-height: 460px;
+      overflow: auto;
+      line-height: 1.45;
+    }
+    .message-list { display: flex; flex-direction: column; gap: 10px; }
+    .message-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+    .message-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+    .message-parts { display: flex; flex-direction: column; gap: 8px; }
+    .part-card { background: var(--overlay-025); border: 1px solid var(--overlay-05); border-radius: 10px; padding: 10px; }
+    .part-label { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; margin-bottom: 6px; }
+    .genai-button {
+      border: 1px solid rgba(88, 166, 255, 0.45);
+      background: rgba(88, 166, 255, 0.12);
+      color: var(--blue);
+      padding: 6px 10px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .genai-button:hover { background: rgba(88, 166, 255, 0.18); }
+
+    /* ---- Shared action-chip buttons ----
+       Replaces the repeated per-button inline `style="border:...;background:
+       rgba(...)...` blocks (Show full chat / Compare models / Export /
+       Delete / Restore) scattered across tab-chats.js, tab-cli.js and
+       modals.js with one reusable, theme-safe component: a pill button in a
+       flat, muted state by default with a colored accent border, filling
+       solid on hover. Use `.action-chip` + one modifier
+       (`--blue|--purple|--teal|--red`). */
+    .action-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.82rem;
+      transition: 0.15s ease;
+    }
+    .action-chip:hover { background: var(--overlay-08); }
+    .action-chip--blue { border-color: var(--blue); color: var(--blue); }
+    .action-chip--purple { border-color: var(--purple); color: var(--purple); }
+    .action-chip--teal { border-color: var(--teal); color: var(--teal); }
+    .action-chip--red { border-color: var(--red); color: var(--red); }
+
+
+    /* ---- State utility classes (backend budget.status / insight severity) ----
+       Colour is never the only signal: each state also carries a distinct
+       left border weight + a reserved icon slot (::before) so meaning
+       survives for colour-blind users or when printed in grayscale. */
+    .state-ok, .state-warn, .state-critical {
+      border-left-width: 4px;
+      border-left-style: solid;
+    }
+    .state-ok { border-left-color: var(--state-ok); }
+    .state-warn { border-left-color: var(--state-warn); }
+    .state-critical { border-left-color: var(--state-critical); }
+    .state-ok::before, .state-warn::before, .state-critical::before {
+      display: inline-block;
+      width: 1em;
+      font-weight: 800;
+      margin-right: 4px;
+      text-align: center;
+    }
+    .state-ok::before { content: "\2713"; color: var(--state-ok); }
+    .state-warn::before { content: "\26A0"; color: var(--state-warn); }
+    .state-critical::before { content: "\2715"; color: var(--state-critical); }
+
+    /* Insight cards tinted by severity (info/warn/critical), built on the
+       existing .insight-card. `.severity-info` intentionally reuses the
+       neutral card look (no tint) so only warn/critical stand out. */
+    .insight-card.severity-warn,
+    .insight-card.state-warn {
+      background: rgba(210, 153, 34, 0.08);
+      border-color: rgba(210, 153, 34, 0.35);
+    }
+    .insight-card.severity-critical,
+    .insight-card.state-critical {
+      background: rgba(248, 81, 73, 0.08);
+      border-color: rgba(248, 81, 73, 0.4);
+    }
+
+    /* ---- Quota/budget gauge bar ---- */
+    .gauge {
+      width: 100%;
+      height: 12px;
+      border-radius: 999px;
+      background: var(--panel-3);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .gauge-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: var(--state-ok);
+      transition: width 0.3s ease, background-color 0.3s ease;
+      min-width: 2px;
+    }
+    .gauge.state-ok .gauge-fill, .gauge-fill.state-ok { background: var(--state-ok); }
+    .gauge.state-warn .gauge-fill, .gauge-fill.state-warn { background: var(--state-warn); }
+    .gauge.state-critical .gauge-fill, .gauge-fill.state-critical { background: var(--state-critical); }
+    .gauge-label { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--muted); margin-top: 6px; }
+
+    /* ---- Copy-to-clipboard buttons + code/setup blocks (OTel panel) ---- */
+    .copy-button {
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-weight: 650;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .copy-button:hover { border-color: var(--blue); color: var(--blue); }
+    .copy-button.copied { border-color: var(--green); color: var(--green); }
+    .code-block {
+      position: relative;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .code-block .copy-button { position: absolute; top: 8px; right: 8px; }
+    .code-block pre, .code-block code { background: transparent; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: var(--panel-3);
+      border-radius: 4px;
+      padding: 1px 5px;
+    }

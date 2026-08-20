@@ -1,0 +1,41 @@
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.62);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 1000;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      width: min(1180px, 96vw);
+      max-height: 92vh;
+      overflow: hidden;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: 0 18px 46px rgba(0,0,0,0.48);
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-header { padding: 16px 18px; border-bottom: 1px solid var(--overlay-06); display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+    .modal-header h3 { margin: 0 0 6px 0; }
+    .modal-actions button {
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+    .modal-body { overflow: auto; padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 14px; }
+    .modal-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .modal-tab { border: 1px solid var(--border); background: var(--panel-2); color: var(--text); border-radius: 999px; padding: 8px 12px; cursor: pointer; }
+    .modal-tab.active { background: var(--teal); color: #041114; border-color: var(--teal); font-weight: 700; }
+    .modal-panel { display: none; }
+    .modal-panel.active { display: block; }
+    .split-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .help-list { margin: 0; padding-left: 18px; }
+    .help-list li { margin: 6px 0; }

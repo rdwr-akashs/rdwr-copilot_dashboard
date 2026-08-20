@@ -1,0 +1,86 @@
+    .analysis-grid { display: grid; gap: 18px; }
+    .analysis-subtabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+    .subtab-button { border: 1px solid var(--border); background: var(--panel-2); color: var(--text); border-radius: 999px; padding: 8px 12px; cursor: pointer; }
+    .subtab-button.active { background: var(--purple); color: #12071e; border-color: var(--purple); font-weight: 700; }
+    .section-title { margin: 0 0 10px 0; font-size: 1.1rem; }
+    .section-subtitle { color: var(--muted); margin-bottom: 12px; }
+    .pagination { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+    .pagination-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .pagination button, .sort-button { border: 1px solid var(--border); background: var(--panel-2); color: var(--text); padding: 8px 12px; border-radius: 10px; cursor: pointer; }
+    .pagination button:disabled { opacity: 0.45; cursor: default; }
+    .sort-button.active { border-color: var(--blue); color: var(--blue); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { border-bottom: 1px solid var(--overlay-06); padding: 10px 8px; text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    th button { all: unset; cursor: pointer; color: inherit; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .compact-prices-wrap { overflow-x: auto; }
+    .compact-prices-table { width: auto; min-width: 540px; font-size: 0.84rem; }
+    .compact-prices-table th, .compact-prices-table td { padding: 6px 8px; text-align: left; white-space: nowrap; }
+    .compact-prices-table td strong { font-weight: 650; }
+    .tool-catalog-controls { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:center; }
+    .tool-catalog-controls input, .tool-catalog-controls select {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      color: var(--text);
+    }
+    .tool-catalog-controls input { min-width: 220px; flex: 1 1 240px; }
+    tr.clickable-row { cursor: pointer; }
+    tr.clickable-row:hover { background: var(--overlay-03); }
+    .pill-list { display: flex; gap: 6px; flex-wrap: wrap; }
+    .pill { background: var(--overlay-06); border: 1px solid var(--overlay-08); border-radius: 999px; padding: 3px 8px; font-size: 0.75rem; color: var(--muted); }
+    .note { color: var(--muted); font-size: 0.88rem; }
+    .insights-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+    details.collapsible-section > summary { list-style: none; }
+    details.collapsible-section > summary::-webkit-details-marker { display: none; }
+    details.collapsible-section { border-radius: 18px; }
+    .insight-card h4 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+    .insight-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+    .insight-card h4 { margin: 0 0 10px 0; }
+
+    /* ---- Segmented control (source/period filter groups) ----
+       Reuses the .subtab-button pill look since that's the closest
+       existing visual language; `.segmented-control` is just a flex
+       wrapper so any group of .subtab-button-style toggles lines up
+       consistently without extra markup requirements. */
+    .segmented-control {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      flex-wrap: wrap;
+    }
+    .segmented-control .subtab-button,
+    .segmented-control button {
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 0.85rem;
+    }
+
+    /* ---- Generic wide-table scroll affordance ----
+       Default responsive approach for dense rollup/data tables (top
+       models/repos/hosts/developers, efficiency tables, etc.): wrap the
+       <table> in `.table-scroll` to get a horizontal scroll container with
+       a visible edge-fade affordance rather than squeezing columns.
+       Narrower, few-column tables can instead opt into `.table-collapse`
+       for a data-label card layout at small widths (see responsive.css). */
+    .table-scroll {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      border-radius: 12px;
+      position: relative;
+      background:
+        linear-gradient(to right, var(--panel) 0%, transparent 2%),
+        linear-gradient(to left, var(--panel) 0%, transparent 2%) right,
+        linear-gradient(to right, var(--shadow) 0%, transparent 6%),
+        linear-gradient(to left, var(--shadow) 0%, transparent 6%) right;
+      background-repeat: no-repeat;
+      background-size: 24px 100%, 24px 100%, 12px 100%, 12px 100%;
+      background-attachment: local, local, scroll, scroll;
+    }
+    .table-scroll table { min-width: 560px; }
+    .rollup-table td strong, .rollup-table th { white-space: nowrap; }

@@ -1,0 +1,106 @@
+    .header {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-top: 3px solid var(--blue);
+      border-radius: 14px;
+      padding: 22px 24px 20px;
+    }
+    .header-top { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+    .header h1 { margin: 0; font-size: 1.5rem; }
+    .subtitle { color: var(--muted); margin-top: 6px; }
+    .summary-groups { margin-top: 20px; display: flex; flex-direction: column; gap: 16px; }
+    .summary-group-label {
+      color: var(--faint);
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 8px;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+    }
+    .summary-card {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+    }
+    .summary-card .label { color: var(--muted); font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .summary-card .value { margin-top: 6px; font-size: 1.25rem; font-weight: 650; }
+    .value.input { color: var(--blue); }
+    .value.output { color: var(--orange); }
+    .value.cached { color: var(--green); }
+    .value.cost { color: var(--teal); }
+    .value.credits { color: var(--yellow); }
+    .tabs {
+      display: flex;
+      gap: 6px;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .tab-button {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      padding: 9px 16px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: 0.15s ease;
+    }
+    .tab-button:hover { background: var(--overlay-05); color: var(--text); }
+    .tab-button.active { background: var(--overlay-08); color: var(--blue); border-color: var(--blue); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px;
+    }
+    .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+    .filter-bar input, .filter-bar select {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      color: var(--text);
+    }
+    .filter-bar input { flex: 1 1 260px; min-width: 220px; }
+    .legend { color: var(--muted); font-size: 0.9rem; }
+
+    /* Sticky global filter bar. The JS agent may mark either the bar
+       itself or a wrapper element with `.filter-bar-sticky` (or the
+       generic `.is-sticky` hook) -- both are supported so this works
+       regardless of which node they choose to stick. z-index sits above
+       ordinary cards/panels but below modal-backdrop (1000). Styled as a
+       distinct rounded toolbar (not a bare row of floating controls) so it
+       reads as its own module between the header title and the summary
+       cards, with clear breathing room on both sides. */
+    .filter-bar-sticky,
+    .is-sticky {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin: 16px 0 4px;
+      align-items: center;
+      transition: box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+    /* Once actually pinned to the top (JS toggles this class via an
+       IntersectionObserver/scroll listener), show a subtle shadow/border
+       so the stuck state reads as "elevated". */
+    .filter-bar-sticky.is-stuck,
+    .is-sticky.is-stuck {
+      box-shadow: 0 8px 18px var(--shadow);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
