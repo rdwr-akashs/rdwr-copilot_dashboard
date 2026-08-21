@@ -7,11 +7,14 @@ from datetime import datetime
 import pytest
 
 from premium_requests import (
+    CREDIT_USD,
     DEFAULT_CRITICAL_THRESHOLD,
     DEFAULT_MULTIPLIER,
     DEFAULT_WARN_THRESHOLD,
+    LEGACY_PLAN_REQUEST_ALLOWANCES,
     MULTIPLIERS,
     PLAN_ALLOWANCES,
+    PLAN_CREDIT_ALLOWANCES,
     build_budget,
     get_multiplier,
     load_config,
@@ -68,7 +71,11 @@ def test_load_config_default_plan_with_nothing_configured(monkeypatch, tmp_path)
     missing_config = tmp_path / "does-not-exist.json"
     config = load_config(config_path=str(missing_config))
     assert config["plan"] == "pro"
-    assert config["allowance"] == PLAN_ALLOWANCES["pro"] == 300
+    # Allowance is denominated in AI credits, not premium requests.
+    assert config["allowance"] == PLAN_CREDIT_ALLOWANCES["pro"] == 1500
+    assert config["allowanceUnit"] == "credits"
+    assert config["creditUsd"] == 0.01
+    assert config["legacyRequestAllowance"] == LEGACY_PLAN_REQUEST_ALLOWANCES["pro"] == 300
     assert config["configPath"] is None  # no file was actually read
 
 
@@ -134,7 +141,7 @@ def test_load_config_plan_name_normalization(tmp_path):
     missing_config = tmp_path / "does-not-exist.json"
     config = load_config(plan="Pro Plus", config_path=str(missing_config))
     assert config["plan"] == "pro_plus"
-    assert config["allowance"] == PLAN_ALLOWANCES["pro_plus"]
+    assert config["allowance"] == PLAN_CREDIT_ALLOWANCES["pro_plus"]
 
 
 # ---------------------------------------------------------------------------
@@ -145,13 +152,27 @@ JUNE_LAST_DAY = datetime(2024, 6, 30, 12, 0, 0)  # June has 30 days -> daysElaps
 JUNE_MID = datetime(2024, 6, 15, 12, 0, 0)
 
 
-def _unified_with_monthly_premium(month_key: str, premium_requests: float) -> dict:
-    return {"monthly": [{"monthKey": month_key, "premiumRequests": premium_requests}]}
+def _monthly_row(month_key: str, credits: float, *, premium_requests: float = 0.0, attributed_credits: float | None = None) -> dict:
+    """A unified monthly row whose billed cost is worth `credits` AI credits.
+
+    The budget is metered in credits derived from cost (1 credit = $0.01), so a
+    row asserting "150 credits used" carries $1.50 of billed cost.
+    """
+    return {
+        "monthKey": month_key,
+        "billed": {"cost": credits * CREDIT_USD},
+        "attributed": {"cost": (attributed_credits if attributed_credits is not None else credits) * CREDIT_USD},
+        "premiumRequests": premium_requests,
+    }
+
+
+def _unified_with_monthly_credits(month_key: str, credits: float, **kwargs) -> dict:
+    return {"monthly": [_monthly_row(month_key, credits, **kwargs)]}
 
 
 def test_build_budget_days_elapsed_and_days_in_month_frozen_now():
     config = {"plan": "pro", "allowance": 300, "warnThreshold": 75.0, "criticalThreshold": 90.0}
-    unified = _unified_with_monthly_premium("2024-06", 0.0)
+    unified = _unified_with_monthly_credits("2024-06", 0.0)
     budget = build_budget(unified, config, now_ms=_ms(JUNE_MID))
     assert budget["daysInMonth"] == 30
     assert budget["daysElapsed"] == 15
@@ -161,7 +182,7 @@ def test_build_budget_basic_maths_with_projection_overrun():
     # used=150 of 300, at day 15 of a 30-day month -> burn rate 10/day,
     # projected month-end = 10 * 30 = 300 = 100% of allowance exactly.
     config = {"plan": "pro", "allowance": 300, "warnThreshold": 75.0, "criticalThreshold": 90.0}
-    unified = _unified_with_monthly_premium("2024-06", 150.0)
+    unified = _unified_with_monthly_credits("2024-06", 150.0)
     budget = build_budget(unified, config, now_ms=_ms(JUNE_MID))
 
     assert budget["used"] == 150.0
@@ -179,8 +200,8 @@ def test_build_budget_basic_maths_with_projection_overrun():
 def test_build_budget_ignores_other_months():
     config = {"plan": "pro", "allowance": 300, "warnThreshold": 75.0, "criticalThreshold": 90.0}
     unified = {"monthly": [
-        {"monthKey": "2024-05", "premiumRequests": 999.0},
-        {"monthKey": "2024-06", "premiumRequests": 30.0},
+        _monthly_row("2024-05", 999.0),
+        _monthly_row("2024-06", 30.0),
     ]}
     budget = build_budget(unified, config, now_ms=_ms(JUNE_MID))
     assert budget["used"] == 30.0  # only the current month's row is used
@@ -188,7 +209,7 @@ def test_build_budget_ignores_other_months():
 
 def test_build_budget_no_monthly_row_for_current_month_yields_zero_used():
     config = {"plan": "pro", "allowance": 300, "warnThreshold": 75.0, "criticalThreshold": 90.0}
-    unified = {"monthly": [{"monthKey": "2024-05", "premiumRequests": 500.0}]}
+    unified = _unified_with_monthly_credits("2024-05", 500.0)
     budget = build_budget(unified, config, now_ms=_ms(JUNE_MID))
     assert budget["used"] == 0.0
     assert budget["status"] == "ok"
@@ -209,7 +230,7 @@ def test_build_budget_status_thresholds_are_inclusive_boundaries(used, expected_
     # projectedPercent == percentUsed exactly (no extra crossover from the
     # projection term), isolating the percentUsed threshold logic itself.
     config = {"plan": "pro", "allowance": 300, "warnThreshold": 75.0, "criticalThreshold": 90.0}
-    unified = _unified_with_monthly_premium("2024-06", used)
+    unified = _unified_with_monthly_credits("2024-06", used)
     budget = build_budget(unified, config, now_ms=_ms(JUNE_LAST_DAY))
     assert budget["percentUsed"] == pytest.approx(budget["projectedPercent"])
     assert budget["status"] == expected_status
@@ -217,7 +238,7 @@ def test_build_budget_status_thresholds_are_inclusive_boundaries(used, expected_
 
 def test_build_budget_unlimited_allowance_does_not_divide_by_none():
     config = {"plan": "unknown_custom_plan", "allowance": None, "warnThreshold": 75.0, "criticalThreshold": 90.0}
-    unified = _unified_with_monthly_premium("2024-06", 42.0)
+    unified = _unified_with_monthly_credits("2024-06", 42.0)
     budget = build_budget(unified, config, now_ms=_ms(JUNE_MID))
 
     assert budget["allowance"] is None
@@ -229,6 +250,75 @@ def test_build_budget_unlimited_allowance_does_not_divide_by_none():
     assert budget["burnRatePerDay"] == pytest.approx(42.0 / 15)
     alert_titles = {alert["title"] for alert in budget["alerts"]}
     assert "No allowance configured" in alert_titles
+
+
+def test_build_budget_credits_are_billed_cost_times_one_hundred():
+    config = {"plan": "pro", "allowance": 1500, "warnThreshold": 75.0, "criticalThreshold": 90.0}
+    # $12.34 of billed usage this month -> 1,234 credits.
+    unified = {"monthly": [{"monthKey": "2024-06", "billed": {"cost": 12.34}, "attributed": {"cost": 9.99}}]}
+    budget = build_budget(unified, config, now_ms=_ms(JUNE_MID))
+
+    assert budget["unit"] == "credits"
+    assert budget["creditUsd"] == 0.01
+    assert budget["used"] == pytest.approx(1234.0)
+    assert budget["usedUsd"] == pytest.approx(12.34)
+    assert budget["allowanceUsd"] == pytest.approx(15.0)
+
+
+def test_build_budget_prefers_billed_cost_but_falls_back_to_attributed():
+    config = {"plan": "pro", "allowance": 1500, "warnThreshold": 75.0, "criticalThreshold": 90.0}
+    # Billing follows the tokens actually sent, so billed wins when present.
+    both = {"monthly": [{"monthKey": "2024-06", "billed": {"cost": 5.00}, "attributed": {"cost": 3.00}}]}
+    assert build_budget(both, config, now_ms=_ms(JUNE_MID))["used"] == pytest.approx(500.0)
+
+    # A row with no billed cost still reports usage rather than zero.
+    attributed_only = {"monthly": [{"monthKey": "2024-06", "attributed": {"cost": 3.00}}]}
+    assert build_budget(attributed_only, config, now_ms=_ms(JUNE_MID))["used"] == pytest.approx(300.0)
+
+
+def test_build_budget_legacy_requests_reported_but_never_drive_status():
+    config = {
+        "plan": "pro",
+        "allowance": 1500,
+        "legacyRequestAllowance": 300,
+        "warnThreshold": 75.0,
+        "criticalThreshold": 90.0,
+    }
+    # Only 10 credits of usage (0.7%), but a huge legacy premium-request count:
+    # status must follow credits and stay "ok".
+    unified = _unified_with_monthly_credits("2024-06", 10.0, premium_requests=5000.0)
+    budget = build_budget(unified, config, now_ms=_ms(JUNE_LAST_DAY))
+
+    assert budget["status"] == "ok"
+    assert budget["legacyRequests"]["used"] == 5000.0
+    assert budget["legacyRequests"]["allowance"] == 300
+    assert budget["legacyRequests"]["unit"] == "premium requests"
+
+
+def test_credit_conversion_helpers_round_trip():
+    from premium_requests import credits_to_usd, usd_to_credits
+
+    assert usd_to_credits(1.0) == pytest.approx(100.0)
+    assert credits_to_usd(100.0) == pytest.approx(1.0)
+    assert credits_to_usd(usd_to_credits(7.77)) == pytest.approx(7.77)
+
+
+def test_plan_allowances_alias_is_the_credit_table():
+    # `PLAN_ALLOWANCES` is shipped to the frontend as premium.planAllowances;
+    # it must mean credits, not the legacy request quotas.
+    assert PLAN_ALLOWANCES is PLAN_CREDIT_ALLOWANCES
+    assert PLAN_ALLOWANCES["pro"] == 1500
+    assert LEGACY_PLAN_REQUEST_ALLOWANCES["pro"] == 300
+
+
+def test_get_multiplier_longest_key_wins_over_declaration_order():
+    # "gpt-5.4" is declared before "gpt-5.4-mini" in MULTIPLIERS; a suffixed
+    # mini model must still resolve to the mini tier, not the standard one.
+    assert MULTIPLIERS["gpt-5.4"] != MULTIPLIERS["gpt-5.4-mini"]
+    assert get_multiplier("gpt-5.4-mini-2026-02-01") == MULTIPLIERS["gpt-5.4-mini"]
+
+    custom = {"my-model": 1.0, "my-model-nano": 0.0}
+    assert get_multiplier("my-model-nano-preview", custom) == 0.0
 
 
 def test_build_budget_empty_unified_yields_zero_used_without_raising():

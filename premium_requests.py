@@ -1,20 +1,34 @@
 from __future__ import annotations
 
-"""Premium-request accounting for the GitHub Copilot Dashboard.
+"""Copilot usage-allowance accounting for the GitHub Copilot Dashboard.
 
-GitHub Copilot rations most paid plans in **premium requests**: each
-qualifying model call counts as `1 * a per-model multiplier` against a
-monthly allowance, with unused capacity typically not rolling over and
-overage optionally billed per-request. This module estimates that
-accounting locally from parsed usage data.
+GitHub now rations paid Copilot plans in **AI credits**, not premium
+requests: 1 credit = $0.01 USD of model usage, priced off the per-token
+rates in `model_pricing.PRICING`. A plan's monthly allowance is a credit
+balance, so the quantity to compare against it is the *cost* of the
+month's usage x 100 - not a count of calls. That is what `build_budget()`
+does.
+
+Premium requests are LEGACY. GitHub retains request-based billing only
+for annual Pro/Pro+ subscriptions purchased before the credit model, where
+one premium request is charged per *user prompt* (not per model call, and
+not for the agent's own follow-up tool calls) multiplied by a per-model
+multiplier. `MULTIPLIERS` / `LEGACY_PLAN_REQUEST_ALLOWANCES` and the
+`legacyRequests` sub-block of `build_budget()`'s result exist for those
+accounts and for reading historical data; they are not the primary meter.
+
+SOURCE OF TRUTH for the numbers below:
+https://docs.github.com/en/copilot/concepts/billing (credits, plan
+allowances) and .../copilot/reference/copilot-billing/models-and-pricing
+(per-token rates). Verified 2026-08-21.
 
 IMPORTANT: everything here is a **local estimate for planning purposes,
-not official GitHub billing**. GitHub is the only source of truth for the
-actual premium-request count and remaining allowance for an account
-(see the "Copilot" page under github.com/settings/billing, or the
-organization/enterprise usage report). The multipliers, plan allowances,
-and thresholds below are believed-correct at authoring time but WILL drift
-as GitHub changes pricing, and every one of them is user-overridable via
+not official GitHub billing**. GitHub is the only source of truth for an
+account's actual credit consumption and remaining allowance (see the
+"Copilot" page under github.com/settings/billing, or the
+organization/enterprise usage report). The allowances, multipliers, and
+thresholds below are believed-correct at authoring time but WILL drift as
+GitHub changes pricing, and every one of them is user-overridable via
 `load_config()` (JSON config file or environment variables) precisely
 because this module cannot query GitHub's billing system directly.
 """
@@ -24,7 +38,12 @@ import os
 from datetime import datetime
 from typing import Any
 
-# Per-model premium-request multipliers.
+from model_pricing import match_keys
+
+# Per-model premium-request multipliers. LEGACY - applies only to annual
+# Pro/Pro+ subscriptions still billed in premium requests (see module
+# docstring). Credit-billed plans ignore these entirely and are metered on
+# cost; a model missing from this table is not a bug for those plans.
 #
 # Anchored to GitHub's publicly documented "Requests" multiplier table where
 # known (e.g. GPT-4.1/4o/5-mini included at 0x, Claude Haiku family at ~0.33x,
@@ -75,17 +94,58 @@ MULTIPLIERS: dict[str, float] = {
 # documented, so it's the safest generic default.
 DEFAULT_MULTIPLIER = 1.0
 
-# Monthly premium-request allowances per plan, per GitHub's publicly
-# documented plan comparison at authoring time. `None` means unlimited or
-# not meaningfully bounded (not currently used, kept for forward-compat).
+# AI credits are the unit every allowance below is denominated in, and
+# `1 credit = $0.01 USD` is the conversion GitHub bills at. Model usage is
+# priced per-token (model_pricing.PRICING), so a month's credit consumption
+# is that month's dollar cost x 100.
+CREDIT_USD = 0.01
+CREDITS_PER_USD = 1.0 / CREDIT_USD  # 100.0
+ALLOWANCE_UNIT = "credits"
+
+
+def usd_to_credits(usd: float) -> float:
+    """Convert a USD model-usage cost into AI credits (1 credit = $0.01)."""
+    return float(usd or 0.0) * CREDITS_PER_USD
+
+
+def credits_to_usd(credits: float) -> float:
+    """Convert AI credits back into USD (1 credit = $0.01)."""
+    return float(credits or 0.0) * CREDIT_USD
+
+
+# Monthly AI-credit allowances per plan, per GitHub's published plan
+# comparison. Each figure is the total spendable in a month = the included
+# monthly credits plus the plan's flex/overage credits, since both draw down
+# before usage is refused or billed on. `None` means "no credit allowance
+# documented" - usage is then tracked but not budget-compared.
+#
 # These are believed correct but change over time - override via
 # `load_config()` (config file / env vars) rather than editing this table.
-PLAN_ALLOWANCES: dict[str, int | None] = {
-    "free": 50,          # GitHub Copilot Free: 50 premium requests/month
-    "pro": 300,           # GitHub Copilot Pro: 300 premium requests/month
-    "pro_plus": 1500,     # GitHub Copilot Pro+: 1,500 premium requests/month
-    "business": 300,      # GitHub Copilot Business: 300 premium requests/user/month
-    "enterprise": 1000,   # GitHub Copilot Enterprise: 1,000 premium requests/user/month
+PLAN_CREDIT_ALLOWANCES: dict[str, int | None] = {
+    # Copilot Free has no credit allowance; it is capped in completions and
+    # chat requests instead, which this dashboard cannot budget against.
+    "free": None,
+    "pro": 1500,          # Pro: 1,000 included + 500 flex
+    "student": 1500,      # Pro, free for verified students/teachers - same allowance
+    "pro_plus": 7000,     # Pro+: 3,900 included + 3,100 flex
+    "max": 20000,         # Max: 10,000 included + 10,000 flex
+    "business": 1900,     # Business: 1,900 credits/user/month
+    "enterprise": 3900,   # Enterprise: 3,900 credits/user/month
+}
+
+# Back-compat alias. Both names mean AI credits; `PLAN_ALLOWANCES` is kept
+# because `dashboard_core` ships it to the frontend as `premium.planAllowances`.
+PLAN_ALLOWANCES = PLAN_CREDIT_ALLOWANCES
+
+# LEGACY monthly premium-REQUEST allowances, for accounts still on annual
+# request-billed Pro/Pro+ and for interpreting historical data. Not used to
+# resolve `config["allowance"]` - that is credits (above).
+LEGACY_PLAN_REQUEST_ALLOWANCES: dict[str, int | None] = {
+    "free": 50,           # Copilot Free: 50 premium requests/month
+    "pro": 300,           # Pro: 300 premium requests/month
+    "pro_plus": 1500,     # Pro+: 1,500 premium requests/month
+    "business": 300,      # Business: 300 premium requests/user/month
+    "enterprise": 1000,   # Enterprise: 1,000 premium requests/user/month
 }
 
 DEFAULT_PLAN = "pro"
@@ -97,19 +157,21 @@ _DEFAULT_CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".copilot-dashboard
 
 
 def get_multiplier(model_name: str | None, multipliers: dict[str, float] | None = None) -> float:
-    """Resolve a model's premium-request multiplier.
+    """Resolve a model's legacy premium-request multiplier.
 
     Uses the same tolerant exact -> prefix -> substring -> default matching
-    strategy as `model_pricing.get_pricing`, for consistency between cost
-    and premium-request estimates.
+    strategy as `model_pricing.get_pricing`, including its longest-key-first
+    ordering (`model_pricing.match_keys`), so cost and premium-request
+    estimates always resolve the same telemetry name to the same model rather
+    than disagreeing on a prefix collision.
     """
     table = multipliers if multipliers is not None else MULTIPLIERS
     model_lower = (model_name or "").lower()
     if model_lower in table:
         return table[model_lower]
-    for key, multiplier in table.items():
+    for key in match_keys(table):
         if model_lower.startswith(key) or key in model_lower:
-            return multiplier
+            return table[key]
     return DEFAULT_MULTIPLIER
 
 
@@ -131,13 +193,17 @@ def load_config(
 ) -> dict[str, Any]:
     """Resolve the plan/allowance/multiplier/threshold configuration.
 
+    `allowance` is denominated in AI CREDITS (1 credit = $0.01 of model
+    usage), matching `PLAN_CREDIT_ALLOWANCES` - not in premium requests.
+
     Priority order (highest wins): explicit function arguments > JSON config
     file (`config_path`, else `$COPILOT_PREMIUM_CONFIG`, else
     `~/.copilot-dashboard/premium.json`) > environment variables
-    (`COPILOT_PLAN`, `COPILOT_PREMIUM_QUOTA`) > built-in default plan
-    ("pro"). The JSON config file may also override `multipliers` (a dict
-    merged on top of `MULTIPLIERS`) and `warnThreshold` / `criticalThreshold`
-    (percent-used alert thresholds).
+    (`COPILOT_PLAN`, and `COPILOT_CREDIT_QUOTA` or its older spelling
+    `COPILOT_PREMIUM_QUOTA`) > built-in default plan ("pro"). The JSON config
+    file may also override `multipliers` (a dict merged on top of
+    `MULTIPLIERS`, legacy premium-request accounting only) and
+    `warnThreshold` / `criticalThreshold` (percent-used alert thresholds).
 
     This is the single override point for every number in this module - none
     of the constants above should be treated as authoritative without
@@ -154,7 +220,7 @@ def load_config(
     )
     resolved_plan = str(resolved_plan).strip().lower().replace("-", "_").replace(" ", "_")
 
-    env_quota = os.environ.get("COPILOT_PREMIUM_QUOTA")
+    env_quota = os.environ.get("COPILOT_CREDIT_QUOTA") or os.environ.get("COPILOT_PREMIUM_QUOTA")
     resolved_allowance: int | None
     if allowance is not None:
         resolved_allowance = int(allowance)
@@ -164,9 +230,9 @@ def load_config(
         try:
             resolved_allowance = int(env_quota)
         except Exception:
-            resolved_allowance = PLAN_ALLOWANCES.get(resolved_plan)
+            resolved_allowance = PLAN_CREDIT_ALLOWANCES.get(resolved_plan)
     else:
-        resolved_allowance = PLAN_ALLOWANCES.get(resolved_plan)
+        resolved_allowance = PLAN_CREDIT_ALLOWANCES.get(resolved_plan)
 
     multipliers = dict(MULTIPLIERS)
     file_multipliers = file_config.get("multipliers")
@@ -183,6 +249,9 @@ def load_config(
     return {
         "plan": resolved_plan,
         "allowance": resolved_allowance,
+        "allowanceUnit": ALLOWANCE_UNIT,
+        "creditUsd": CREDIT_USD,
+        "legacyRequestAllowance": LEGACY_PLAN_REQUEST_ALLOWANCES.get(resolved_plan),
         "multipliers": multipliers,
         "warnThreshold": warn_threshold,
         "criticalThreshold": critical_threshold,
@@ -223,12 +292,34 @@ def _max_severity(a: str, b: str) -> str:
 
 
 def build_budget(unified: dict[str, Any], config: dict[str, Any], now_ms: float | int | None = None) -> dict[str, Any]:
-    """Estimate this calendar month's premium-request budget status.
+    """Estimate this calendar month's AI-credit budget status.
 
     Reads `unified["monthly"]` (from `usage_model.build_unified`) for the
-    current-month premium-request total across both chat and CLI sources,
-    then projects month-end usage from the current burn rate. This is a
-    local estimate only - see the module docstring.
+    current month's total across both chat and CLI sources, then projects
+    month-end usage from the current burn rate. This is a local estimate
+    only - see the module docstring.
+
+    Unit: AI CREDITS
+    ------------------
+    `used` / `remaining` / `overage` / `burnRatePerDay` / `projectedMonthEnd`
+    are all credits, derived as `billed cost in USD x 100` (1 credit =
+    $0.01), because that is how GitHub meters a credit-billed plan - by the
+    dollar value of tokens consumed, not by a count of calls. `usedUsd` and
+    `allowanceUsd` report the same figures in dollars for readability, and
+    `unit`/`creditUsd` state the convention explicitly so no consumer has to
+    infer it.
+
+    The month's *billed* cost is used in preference to the attributed cost:
+    billing follows the tokens actually sent to the model, and prompt-growth
+    attribution is a presentation-side reallocation of the same spend.
+    Attributed cost is the fallback only when a row carries no billed cost.
+
+    Legacy premium requests
+    -------------------------
+    `legacyRequests` carries the multiplier-weighted premium-request estimate
+    that used to drive this budget, for accounts still on annual
+    request-billed Pro/Pro+ and for reading historical data. It is reported,
+    never used to compute `status` or `alerts`.
 
     Severity reconciliation (status vs. alerts)
     --------------------------------------------
@@ -265,11 +356,17 @@ def build_budget(unified: dict[str, Any], config: dict[str, Any], now_ms: float 
     now = datetime.fromtimestamp((now_ms or 0) / 1000.0) if now_ms else datetime.now()
     current_month_key = now.strftime("%Y-%m")
 
-    used = 0.0
+    used_usd = 0.0
+    legacy_requests = 0.0
     for row in (unified or {}).get("monthly", []) or []:
         if row.get("monthKey") == current_month_key:
-            used = float(row.get("premiumRequests", 0.0) or 0.0)
+            billed_cost = float(((row.get("billed") or {}).get("cost", 0.0)) or 0.0)
+            attributed_cost = float(((row.get("attributed") or {}).get("cost", 0.0)) or 0.0)
+            used_usd = billed_cost or attributed_cost
+            legacy_requests = float(row.get("premiumRequests", 0.0) or 0.0)
             break
+
+    used = usd_to_credits(used_usd)
 
     allowance = config.get("allowance")
     days_in_month = _days_in_month(now)
@@ -314,8 +411,11 @@ def build_budget(unified: dict[str, Any], config: dict[str, Any], now_ms: float 
         if current_severity != "ok":
             alerts.append({
                 "severity": current_severity,
-                "title": "Premium request usage critical" if current_severity == "critical" else "Premium request usage high",
-                "detail": f"{used:.0f} of {allowance:.0f} premium requests used so far this month ({percent_used:.0f}%).",
+                "title": "AI credit usage critical" if current_severity == "critical" else "AI credit usage high",
+                "detail": (
+                    f"{used:.0f} of {allowance:.0f} AI credits used so far this month "
+                    f"({percent_used:.0f}%) - about ${used_usd:.2f} of model usage."
+                ),
             })
 
         # Only surface the projection as its own alert when it says more
@@ -330,22 +430,26 @@ def build_budget(unified: dict[str, Any], config: dict[str, Any], now_ms: float 
                 "severity": projected_severity,
                 "title": "Projected to exceed monthly allowance" if projected_percent >= 100.0 else "Projected usage trending high",
                 "detail": (
-                    f"At the current burn rate (~{burn_rate_per_day:.1f}/day) usage is projected to reach "
-                    f"{projected_month_end:.0f} by month end ({projected_percent:.0f}% of the {allowance:.0f}-request "
-                    f"allowance){confidence_note}."
+                    f"At the current burn rate (~{burn_rate_per_day:.1f} credits/day) usage is projected to reach "
+                    f"{projected_month_end:.0f} credits by month end ({projected_percent:.0f}% of the "
+                    f"{allowance:.0f}-credit allowance){confidence_note}."
                 ),
             })
     else:
         alerts.append({
             "severity": "info",
             "title": "No allowance configured",
-            "detail": "Plan allowance is unknown/unlimited; usage is tracked but not compared against a budget.",
+            "detail": "Plan credit allowance is unknown/unlimited; usage is tracked but not compared against a budget.",
         })
 
     return {
         "plan": config.get("plan"),
+        "unit": ALLOWANCE_UNIT,
+        "creditUsd": CREDIT_USD,
         "allowance": allowance,
+        "allowanceUsd": credits_to_usd(allowance) if allowance is not None else None,
         "used": used,
+        "usedUsd": used_usd,
         "remaining": remaining,
         "overage": overage,
         "percentUsed": percent_used,
@@ -357,4 +461,17 @@ def build_budget(unified: dict[str, Any], config: dict[str, Any], now_ms: float 
         "projectionConfidence": projection_confidence,
         "status": status,
         "alerts": alerts,
+        # Legacy, reported only - see the docstring. `allowance` here is the
+        # request-based plan quota, which is NOT comparable to the credit
+        # figures above; keep the two units visibly separate.
+        "legacyRequests": {
+            "used": legacy_requests,
+            "allowance": config.get("legacyRequestAllowance", LEGACY_PLAN_REQUEST_ALLOWANCES.get(str(config.get("plan") or ""))),
+            "unit": "premium requests",
+            "note": (
+                "Multiplier-weighted premium-request estimate. Applies only to annual "
+                "Pro/Pro+ subscriptions still billed in requests; credit-billed plans are "
+                "metered on the credit figures above."
+            ),
+        },
     }

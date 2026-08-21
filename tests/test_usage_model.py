@@ -89,6 +89,11 @@ def _cli_data_fixture():
                 "repository": "repoC",
                 "branch": "dev",
                 "lastActivity": _ms(DAY3),
+                # 3 user prompts across 3 model calls, so prompts and calls
+                # apportion 1:1 here; see
+                # test_records_from_cli_prompts_apportioned_across_models for
+                # the agent-loop case where they diverge.
+                "turnCount": 3,
                 "modelBreakdown": [
                     {"model": "gpt-5.4", "calls": 2, "input": 300.0, "cached": 50.0, "output": 80.0, "cost": 0.02},
                     {"model": "claude-sonnet-4.5", "calls": 1, "input": 100.0, "cached": 0.0, "output": 40.0, "cost": 0.01},
@@ -162,7 +167,54 @@ def test_records_from_cli_per_model_breakdown_row():
     assert gpt_record["attributed"]["uncached"] == 250.0  # max(0, 300-50)
     assert gpt_record["attributed"]["output"] == 80.0
     assert gpt_record["attributed"]["cost"] == 0.02
+    assert gpt_record["modelCalls"] == 2.0
+    assert gpt_record["promptCount"] == pytest.approx(2.0)  # 3 turns * (2 of 3 calls)
     assert gpt_record["premiumRequests"] == pytest.approx(2.0 * get_multiplier("gpt-5.4"))
+
+
+def test_records_from_cli_prompts_apportioned_across_models():
+    # An agent loop: 1 user prompt, 100 model calls. Premium requests are
+    # charged per prompt, so the estimate must not follow the call count.
+    cli_data = {
+        "available": True,
+        "sessions": [{
+            "id": "loopSess",
+            "lastActivity": _ms(DAY3),
+            "turnCount": 2,
+            "modelBreakdown": [
+                {"model": "gpt-5.4", "calls": 75, "input": 10.0, "cached": 0.0, "output": 5.0, "cost": 0.01},
+                {"model": "claude-sonnet-4.5", "calls": 25, "input": 10.0, "cached": 0.0, "output": 5.0, "cost": 0.01},
+            ],
+        }],
+    }
+    records = records_from_cli(cli_data)
+    by_model = {record["model"]: record for record in records}
+
+    assert by_model["gpt-5.4"]["modelCalls"] == 75.0
+    assert by_model["claude-sonnet-4.5"]["modelCalls"] == 25.0
+    # 2 prompts split 75:25 by call share -> 1.5 / 0.5, summing back to 2.
+    assert by_model["gpt-5.4"]["promptCount"] == pytest.approx(1.5)
+    assert by_model["claude-sonnet-4.5"]["promptCount"] == pytest.approx(0.5)
+    assert sum(record["promptCount"] for record in records) == pytest.approx(2.0)
+    assert by_model["gpt-5.4"]["premiumRequests"] == pytest.approx(1.5 * get_multiplier("gpt-5.4"))
+
+
+def test_records_from_cli_missing_turn_count_still_counts_one_prompt():
+    # A session with calls but no recorded turnCount had at least one prompt;
+    # prompts must not round to zero and silently zero out premium requests.
+    cli_data = {
+        "available": True,
+        "sessions": [{
+            "id": "noTurns",
+            "lastActivity": _ms(DAY3),
+            "modelBreakdown": [
+                {"model": "gpt-5.4", "calls": 9, "input": 10.0, "cached": 0.0, "output": 5.0, "cost": 0.01},
+            ],
+        }],
+    }
+    record = records_from_cli(cli_data)[0]
+    assert record["modelCalls"] == 9.0
+    assert record["promptCount"] == pytest.approx(1.0)
 
 
 def test_records_from_cli_attributed_equals_billed_never_double_counts():

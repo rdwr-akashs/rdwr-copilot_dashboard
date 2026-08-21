@@ -13,16 +13,25 @@ import { APP_DATA, STATE, isBilledMode, isCliSessionHidden, isSessionHidden } fr
         billed: zeroTokenBlock(),
         premiumRequests: 0,
         callCount: 0,
+        modelCalls: 0,
+        promptCount: 0,
         sessionCount: 0,
       };
     }
 
+    // `callCount` counts unified *records*; `modelCalls` and `promptCount` are
+    // the two quantities that actually differ (one CLI prompt can drive
+    // hundreds of model calls, and legacy premium requests are charged per
+    // prompt). Buckets written before those fields existed only have
+    // callCount, so each falls back to it rather than silently summing 0.
     function addUnifiedBucket(target, src) {
       if (!src) return target;
       addTokenBlock(target.attributed, src.attributed);
       addTokenBlock(target.billed, src.billed);
       target.premiumRequests += Number(src.premiumRequests || 0);
       target.callCount += Number(src.callCount || 0);
+      target.modelCalls += Number(src.modelCalls ?? src.callCount ?? 0);
+      target.promptCount += Number(src.promptCount ?? src.callCount ?? 0);
       target.sessionCount += Number(src.sessionCount || 0);
       return target;
     }

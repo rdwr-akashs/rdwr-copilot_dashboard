@@ -1,6 +1,6 @@
 import { exportToJson, switchTab, switchTokenMode, switchUsagePeriod } from './actions.js';
 import { activePeriodLabel, activeSummary, pagedSessions, unifiedFilteredTotals } from './aggregate.js';
-import { cacheHitRateForBlock, escapeHtml, formatCost, formatInteger, formatPercent, pickTokenBlock, summaryDisplayTotals } from './format.js';
+import { cacheHitRateForBlock, creditsFromCost, escapeHtml, formatCost, formatInteger, formatPercent, pickTokenBlock, summaryDisplayTotals } from './format.js';
 import { applyCustomDateInputs, currentFilters, decodeHashIntoState, encodeHashFromState, setFilter } from './filters.js';
 import { APP_DATA, STATE, applyTheme, captureInputFocusState, isBilledMode, normalizeTokenMode, restoreInputFocusState, tokenModeLabel } from './state.js';
 import { renderAnalysisTab } from './tab-analysis.js';
@@ -37,8 +37,12 @@ import { changeCliPage, deleteCliSessionPrompt, exportCliSessionToJson, openCliF
       const creditsLabel = isBilledMode() ? 'Billed AI credits' : 'Attributed AI credits';
       const budget = APP_DATA.premium?.budget || {};
       const hasAllowance = budget.allowance !== null && budget.allowance !== undefined;
-      const pct = hasAllowance ? Math.max(0, Math.min(100, Number(budget.percentUsed || 0))) : 0;
-      const quotaLabel = hasAllowance ? `${formatPercent(pct)} of ${formatInteger(budget.allowance)}` : 'no allowance set';
+      // The gauge bar can only be filled 0-100%, but the *label* must report
+      // the true figure -- clamping it too made a 657% overrun read as an
+      // exactly-exhausted 100%, contradicting the budget alerts.
+      const rawPct = hasAllowance ? Number(budget.percentUsed || 0) : 0;
+      const pct = Math.max(0, Math.min(100, rawPct));
+      const quotaLabel = hasAllowance ? `${formatPercent(rawPct)} of ${formatInteger(budget.allowance)} credits` : 'no allowance set';
       const quotaGauge = hasAllowance
         ? `<div class="gauge ${stateClass(budget.status)}" style="margin-top:6px"><div class="gauge-fill ${stateClass(budget.status)}" style="width:${pct}%"></div></div>`
         : '';
@@ -48,7 +52,8 @@ import { changeCliPage, deleteCliSessionPrompt, exportCliSessionToJson, openCliF
             <div class="summary-group-label">Usage</div>
             <div class="summary-grid">
               <div class="summary-card"><div class="label">Sessions</div><div class="value">${formatInteger(totals.sessionCount)}</div></div>
-              <div class="summary-card"><div class="label">Calls</div><div class="value">${formatInteger(totals.callCount)}</div></div>
+              <div class="summary-card" title="Model API calls. An agentic CLI session makes many calls per prompt, so this is much larger than the prompt count."><div class="label">Model calls</div><div class="value">${formatInteger(totals.modelCalls ?? totals.callCount)}</div></div>
+              <div class="summary-card" title="User prompts submitted. This is what legacy premium-request billing counts, not model calls."><div class="label">Prompts</div><div class="value">${formatInteger(totals.promptCount ?? totals.callCount)}</div></div>
               <div class="summary-card"><div class="label">Total input tokens</div><div class="value input">${formatInteger(block.input)}</div></div>
               <div class="summary-card"><div class="label">Uncached input tokens</div><div class="value uncached">${formatInteger(block.uncached)}</div></div>
               <div class="summary-card"><div class="label">Cached-read input tokens</div><div class="value cached">${formatInteger(block.cached)}</div></div>
@@ -56,12 +61,12 @@ import { changeCliPage, deleteCliSessionPrompt, exportCliSessionToJson, openCliF
             </div>
           </div>
           <div class="summary-group">
-            <div class="summary-group-label">Cost &amp; premium</div>
+            <div class="summary-group-label">Cost &amp; AI credits</div>
             <div class="summary-grid">
               <div class="summary-card"><div class="label">${escapeHtml(costLabel)}</div><div class="value cost">${formatCost(block.cost)}</div></div>
-              <div class="summary-card"><div class="label">${escapeHtml(creditsLabel)}</div><div class="value credits">${(block.cost / 0.01).toFixed(1)}</div></div>
-              <div class="summary-card"><div class="label">Premium requests</div><div class="value">${formatInteger(totals.premiumRequests)}</div></div>
-              <div class="summary-card"><div class="label">Premium quota used</div><div class="value">${escapeHtml(quotaLabel)}</div>${quotaGauge}</div>
+              <div class="summary-card" title="1 AI credit = $0.01 of model usage — the unit GitHub meters paid plans in."><div class="label">${escapeHtml(creditsLabel)}</div><div class="value credits">${creditsFromCost(block.cost).toFixed(1)}</div></div>
+              <div class="summary-card"><div class="label">Credit allowance used</div><div class="value">${escapeHtml(quotaLabel)}</div>${quotaGauge}</div>
+              <div class="summary-card" title="Legacy premium-request estimate (one per user prompt x model multiplier). Applies only to annual Pro/Pro+ plans still billed in requests."><div class="label">Premium requests (legacy)</div><div class="value">${formatInteger(totals.premiumRequests)}</div></div>
             </div>
           </div>
         </div>`;
@@ -117,7 +122,7 @@ import { changeCliPage, deleteCliSessionPrompt, exportCliSessionToJson, openCliF
           <div class="header-top">
             <div>
               <h1>📊 Copilot Usage Explorer ${anonymizedBadge}</h1>
-              <div class="subtitle">Unified view across VS Code Copilot Chat and the GitHub Copilot CLI: <strong>prompt snapshots</strong> vs. <strong>billed per-call usage</strong>, premium-request budget tracking, and cost/quota recommendations.</div>
+              <div class="subtitle">Unified view across VS Code Copilot Chat and the GitHub Copilot CLI: <strong>prompt snapshots</strong> vs. <strong>billed per-call usage</strong>, AI-credit budget tracking, and cost/quota recommendations.</div>
               <div class="subtitle small">Generated: ${escapeHtml(APP_DATA.generatedAt)} · Legacy chat period: <strong>${escapeHtml(periodLabel)}</strong> · Token mode: <strong>${escapeHtml(modeLabel)}</strong> · Chat cached share: ${formatPercent(cacheHitRateForBlock(legacyTotals))}</div>
             </div>
             <div style="display:flex;gap:12px;flex-direction:column;align-items:flex-end;min-width:200px">

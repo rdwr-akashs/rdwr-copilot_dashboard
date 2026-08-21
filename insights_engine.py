@@ -73,6 +73,7 @@ from typing import Any
 
 from model_pricing import PRICING, get_pricing, calculate_cost
 from premium_requests import (
+    CREDIT_USD,
     MULTIPLIERS,
     get_multiplier,
     _read_config_file,
@@ -731,7 +732,14 @@ def _rule_chat_vs_cli_comparison(unified: dict[str, Any], cfg: dict[str, Any]) -
 # ---------------------------------------------------------------------------
 
 def _rule_premium_request_burn(premium: dict[str, Any], cfg: dict[str, Any]) -> list[dict[str, Any]]:
-    """Surface premium_requests.build_budget's projection as an insight when it's not "ok"."""
+    """Surface premium_requests.build_budget's projection as an insight when it's not "ok".
+
+    The budget is denominated in AI credits (1 credit = $0.01 of model usage),
+    so every quantity here is credits and the finding's `estimatedSavings.cost`
+    carries the projected overshoot converted back to dollars - unlike the
+    request-rationing framing this rule used to have, a credit overshoot is a
+    real dollar amount.
+    """
     budget = (premium or {}).get("budget") or {}
     status = budget.get("status")
     if status not in ("warn", "critical"):
@@ -751,28 +759,32 @@ def _rule_premium_request_burn(premium: dict[str, Any], cfg: dict[str, Any]) -> 
     return [_make_insight(
         insight_id="premium-request-burn",
         severity=status,
-        title="Premium-request usage is projected to exceed the monthly allowance" if overshoot > 0 else "Premium-request usage is high this month",
+        title="AI credit usage is projected to exceed the monthly allowance" if overshoot > 0 else "AI credit usage is high this month",
         detail=(
-            f"{used:.0f} of {allowance} premium requests used with {days_remaining} day(s) left in the month "
+            f"{used:.0f} of {allowance} AI credits used with {days_remaining} day(s) left in the month "
             f"({budget.get('percentUsed', 0.0):.0f}% used). At the current burn rate "
-            f"(~{budget.get('burnRatePerDay', 0.0):.1f}/day), month-end usage is projected at {projected:.0f} "
-            f"({'an overshoot of ~%.0f requests' % overshoot if overshoot > 0 else 'within the allowance'})."
+            f"(~{budget.get('burnRatePerDay', 0.0):.1f} credits/day), month-end usage is projected at {projected:.0f} "
+            f"({'an overshoot of ~%.0f credits (~$%.2f)' % (overshoot, overshoot * CREDIT_USD) if overshoot > 0 else 'within the allowance'})."
         ),
         source="both",
         evidence=[{
             "plan": budget.get("plan"),
+            "unit": budget.get("unit", "credits"),
             "allowance": allowance,
             "used": used,
+            "usedUsd": budget.get("usedUsd"),
             "remaining": remaining,
             "projectedMonthEnd": projected,
             "daysRemaining": days_remaining,
         }],
-        # This is a rationing problem, not a dollar-cost problem: GitHub caps
-        # premium requests rather than charging overage on every plan, so the
-        # "saving" is expressed only in premium requests, not dollars.
-        savings_cost=0.0,
-        savings_premium=overshoot,
-        action="Shift routine work to 0x-multiplier models (see app_data.premium.multipliers), reduce call volume, or upgrade plan/allowance before the month resets.",
+        # Credits are priced ($0.01 each), so a projected overshoot is a real
+        # dollar figure. `savings_premium` stays 0 here: it means *legacy
+        # premium requests*, and consumers render it with that label -- the
+        # credit count is already recoverable as cost / CREDIT_USD, so
+        # stuffing credits into that field would just mislabel them.
+        savings_cost=overshoot * CREDIT_USD,
+        savings_premium=0.0,
+        action="Shift routine work to cheaper models (see the model pricing table), cut call volume or context size, or raise the plan/allowance before the month resets.",
         confidence="high",
     )]
 

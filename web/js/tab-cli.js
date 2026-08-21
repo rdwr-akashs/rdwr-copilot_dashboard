@@ -53,31 +53,53 @@ import { renderStatCell, renderTable } from './tables.js';
     }
 
     // ---------------------------------------------------------------------
-    // Local premium-request estimation for CLI sessions.
+    // Local LEGACY premium-request estimation for CLI sessions.
+    //
+    // Premium requests are legacy (credit-billed plans are metered on cost —
+    // see the AI credit budget panel); this exists for accounts still on
+    // request-billed annual Pro/Pro+ and for reading historical data.
     //
     // The backend only attaches `premiumRequests` onto chat sessions and
     // `cli.byModel` rows (see dashboard_core.py), not onto individual CLI
     // session objects. When we need a per-session or per-repo estimate (for
-    // filtered recompute / rollups) we replicate the same tolerant
-    // exact -> prefix -> substring -> default(1.0) match that
-    // premium_requests.py::get_multiplier uses, driven off
-    // `APP_DATA.premium.multipliers` so it stays in sync with the backend
-    // config. This is a local estimate only, same caveat as the backend.
+    // filtered recompute / rollups) we replicate the backend's accounting
+    // exactly, driven off `APP_DATA.premium.multipliers` so it stays in sync
+    // with the backend config:
+    //   * the same tolerant exact -> prefix -> substring -> default(1.0)
+    //     match as premium_requests.py::get_multiplier, including its
+    //     longest-key-first ordering (a shorter key that prefixes a longer one
+    //     must not win just because it was declared first);
+    //   * charged per user PROMPT, not per model call. `session.turnCount`
+    //     counts prompts while `modelBreakdown[].calls` counts model calls,
+    //     and an agent loop makes many calls per prompt — so prompts are
+    //     apportioned across a session's model buckets by call share, exactly
+    //     as usage_model.records_from_cli does.
+    // This is a local estimate only, same caveat as the backend.
     // ---------------------------------------------------------------------
 
     function premiumMultiplierForModel(modelName) {
       const table = (APP_DATA.premium && APP_DATA.premium.multipliers) || {};
       const name = String(modelName || '').toLowerCase();
       if (Object.prototype.hasOwnProperty.call(table, name)) return Number(table[name]);
-      for (const key of Object.keys(table)) {
+      for (const key of Object.keys(table).sort((a, b) => b.length - a.length)) {
         if (name.startsWith(key) || name.includes(key)) return Number(table[key]);
       }
       return 1.0;
     }
 
+    // Prompts attributable to one modelBreakdown row of a session.
+    function rowPromptCount(session, row) {
+      const rows = session.modelBreakdown || [];
+      const sessionCalls = rows.reduce((sum, r) => sum + Number(r.calls || 0), 0);
+      if (!sessionCalls) return 0;
+      // A session with calls but no recorded turnCount still had >= 1 prompt.
+      const prompts = Number(session.turnCount || 0) || 1;
+      return prompts * (Number(row.calls || 0) / sessionCalls);
+    }
+
     function sessionPremiumRequests(session) {
       return (session.modelBreakdown || []).reduce(
-        (sum, row) => sum + Number(row.calls || 0) * premiumMultiplierForModel(row.model),
+        (sum, row) => sum + rowPromptCount(session, row) * premiumMultiplierForModel(row.model),
         0,
       );
     }
@@ -115,7 +137,7 @@ import { renderStatCell, renderTable } from './tables.js';
           bucket.cached += Number(row.cached || 0);
           bucket.output += Number(row.output || 0);
           bucket.cost += Number(row.cost || 0);
-          bucket.premiumRequests += Number(row.calls || 0) * premiumMultiplierForModel(row.model);
+          bucket.premiumRequests += rowPromptCount(session, row) * premiumMultiplierForModel(row.model);
           bucket.sessionIds.add(session.id);
           map.set(key, bucket);
         });
@@ -271,7 +293,7 @@ import { renderStatCell, renderTable } from './tables.js';
       const priciestModelsTable = renderTable([
         { title: 'Model', render: (row) => `<strong>${escapeHtml(row.model)}</strong>` },
         { title: 'Cost', numeric: true, render: (row) => `<span class="value cost">${formatCost(row.cost)}</span>` },
-        { title: 'Premium reqs (est.)', numeric: true, render: (row) => formatInteger(row.premiumRequests) },
+        { title: 'Premium reqs (legacy est.)', numeric: true, render: (row) => formatInteger(row.premiumRequests) },
         { title: 'Calls', numeric: true, render: (row) => formatInteger(row.calls) },
       ], priciestModels);
 
@@ -340,7 +362,7 @@ import { renderStatCell, renderTable } from './tables.js';
             <thead>
               <tr>
                 <th>Repository</th><th>Branch</th><th class="num">Sessions</th>
-                <th class="num">Input</th><th class="num">Output</th><th class="num">Cost</th><th class="num">Premium reqs (est.)</th>
+                <th class="num">Input</th><th class="num">Output</th><th class="num">Cost</th><th class="num">Premium reqs (legacy est.)</th>
               </tr>
             </thead>
             <tbody>
@@ -351,7 +373,7 @@ import { renderStatCell, renderTable } from './tables.js';
                 <td data-label="Input" class="num"><span class="value input">${formatInteger(row.input)}</span></td>
                 <td data-label="Output" class="num"><span class="value output">${formatInteger(row.output)}</span></td>
                 <td data-label="Cost" class="num"><span class="value cost">${formatCost(row.cost)}</span></td>
-                <td data-label="Premium reqs (est.)" class="num">${formatInteger(row.premiumRequests)}</td>
+                <td data-label="Premium reqs (legacy est.)" class="num">${formatInteger(row.premiumRequests)}</td>
               </tr>`).join('')}
             </tbody>
           </table>
@@ -475,10 +497,10 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
           <div class="summary-card"><div class="label">Total output</div><div class="value output">${formatInteger(summary.totalOutput)}</div></div>
           <div class="summary-card"><div class="label">Estimated cost</div><div class="value cost">${formatCost(summary.totalCost)}</div></div>
           <div class="summary-card"><div class="label">Files touched</div><div class="value">${formatInteger(summary.fileCount)}</div></div>
-          <div class="summary-card"><div class="label">Premium requests (est.)</div><div class="value">${formatInteger(totalPremiumRequests)}</div></div>
+          <div class="summary-card"><div class="label">Premium requests (legacy est.)</div><div class="value">${formatInteger(totalPremiumRequests)}</div></div>
           ${cli.otelAvailable ? `<div class="summary-card"><div class="label">Tool calls (OTel)</div><div class="value">${formatInteger(summary.toolCallCount)}</div></div>` : ''}
         </div>
-        <div class="note small" style="margin-top:-6px;margin-bottom:12px">Premium-request counts are local estimates from <code>APP_DATA.premium.multipliers</code>, not official GitHub billing — check github.com/settings/billing for the authoritative count.${filterLabel(filterState)}</div>
+        <div class="note small" style="margin-top:-6px;margin-bottom:12px">Premium requests are the legacy meter (annual request-billed Pro/Pro+ only); credit-billed plans are metered on cost — see the AI credit budget on Overview. Counts are local estimates: one per user prompt (apportioned from <code>turnCount</code>, not per model call) times the model multiplier from <code>APP_DATA.premium.multipliers</code>, not official GitHub billing — check github.com/settings/billing for the authoritative figures.${filterLabel(filterState)}</div>
         ${filterState.active && filterState.sourceOk === false ? '<div class="state-warn" style="padding:8px 12px;border-radius:8px;background:var(--panel-2)">CLI data is currently hidden by the global source filter. Switch the source filter to "All" or "CLI" to see it here.</div>' : ''}`;
 
       const byModelTable = renderTable([
@@ -488,7 +510,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
         { title: 'Cached-read input', numeric: true, render: (row) => `<span class="value cached">${formatInteger(row.cached)}</span>` },
         { title: 'Output', numeric: true, render: (row) => `<span class="value output">${formatInteger(row.output)}</span>` },
         { title: 'Cost', numeric: true, render: (row) => `<span class="value cost">${formatCost(row.cost)}</span>` },
-        { title: 'Premium reqs (est.)', numeric: true, render: (row) => formatInteger(row.premiumRequests) },
+        { title: 'Premium reqs (legacy est.)', numeric: true, render: (row) => formatInteger(row.premiumRequests) },
       ], byModelRows);
 
       const cliTools = cli.tools || [];

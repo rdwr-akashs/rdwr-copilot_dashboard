@@ -571,20 +571,24 @@ def main() -> None:
         "--plan",
         default=os.environ.get("COPILOT_PLAN"),
         help=(
-            "GitHub Copilot plan used to resolve the premium-request monthly allowance "
-            "(free|pro|pro_plus|business|enterprise). Default: $COPILOT_PLAN, else 'pro'."
+            "GitHub Copilot plan used to resolve the monthly AI-credit allowance "
+            "(free|pro|student|pro_plus|max|business|enterprise). Default: $COPILOT_PLAN, else 'pro'."
         ),
     )
     parser.add_argument(
         "--premium-quota",
         type=int,
-        default=(int(os.environ["COPILOT_PREMIUM_QUOTA"]) if os.environ.get("COPILOT_PREMIUM_QUOTA") else None),
-        help="Explicit monthly premium-request allowance, overriding the --plan default.",
+        default=(int(os.environ.get("COPILOT_CREDIT_QUOTA") or os.environ["COPILOT_PREMIUM_QUOTA"])
+                 if (os.environ.get("COPILOT_CREDIT_QUOTA") or os.environ.get("COPILOT_PREMIUM_QUOTA")) else None),
+        help=(
+            "Explicit monthly AI-credit allowance (1 credit = $0.01 of model usage), overriding "
+            "the --plan default. Default: $COPILOT_CREDIT_QUOTA, or legacy $COPILOT_PREMIUM_QUOTA."
+        ),
     )
     parser.add_argument(
         "--premium-config",
         default=os.environ.get("COPILOT_PREMIUM_CONFIG"),
-        help="Path to a JSON config file overriding premium-request plan/allowance/multipliers/thresholds.",
+        help="Path to a JSON config file overriding plan/credit-allowance/legacy-multipliers/thresholds.",
     )
     parser.add_argument(
         "--anonymize",

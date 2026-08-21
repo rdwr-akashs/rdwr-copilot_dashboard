@@ -362,6 +362,10 @@
   function formatCost(value) {
     return `$${Number(value || 0).toFixed(4)}`;
   }
+  var CREDIT_USD = 0.01;
+  function creditsFromCost(cost) {
+    return Number(cost || 0) / CREDIT_USD;
+  }
   function formatDuration(ms) {
     const value = Number(ms || 0);
     if (!value) return "\u2014";
@@ -655,15 +659,20 @@
       billed: zeroTokenBlock(),
       premiumRequests: 0,
       callCount: 0,
+      modelCalls: 0,
+      promptCount: 0,
       sessionCount: 0
     };
   }
   function addUnifiedBucket(target, src) {
+    var _a, _b, _c, _d;
     if (!src) return target;
     addTokenBlock(target.attributed, src.attributed);
     addTokenBlock(target.billed, src.billed);
     target.premiumRequests += Number(src.premiumRequests || 0);
     target.callCount += Number(src.callCount || 0);
+    target.modelCalls += Number((_b = (_a = src.modelCalls) != null ? _a : src.callCount) != null ? _b : 0);
+    target.promptCount += Number((_d = (_c = src.promptCount) != null ? _c : src.callCount) != null ? _d : 0);
     target.sessionCount += Number(src.sessionCount || 0);
     return target;
   }
@@ -2665,7 +2674,8 @@ CLI ${metric.label}: ${metric.format(point.cli)}`;
           ${hasSavings ? `
           <div class="pill-list" style="margin-top:10px;">
             ${Number(savings.cost || 0) > 0 ? `<span class="pill">Est. saving ${escapeHtml(formatCost(savings.cost))}</span>` : ""}
-            ${Number(savings.premiumRequests || 0) > 0 ? `<span class="pill">${escapeHtml(formatInteger(savings.premiumRequests))} premium req.</span>` : ""}
+            ${Number(savings.cost || 0) > 0 ? `<span class="pill">${escapeHtml(creditsFromCost(savings.cost).toFixed(0))} AI credits</span>` : ""}
+            ${Number(savings.premiumRequests || 0) > 0 ? `<span class="pill" title="Legacy meter: annual request-billed Pro/Pro+ only.">${escapeHtml(formatInteger(savings.premiumRequests))} premium req. (legacy)</span>` : ""}
           </div>` : `<div class="note small" style="margin-top:10px">Informational \u2014 no quantifiable saving.</div>`}
           <details style="margin-top:10px" id="insight-evidence-${index}">
             <summary class="note small">Evidence (${formatInteger(evidenceCount)})</summary>
@@ -2715,7 +2725,7 @@ CLI ${metric.label}: ${metric.format(point.cli)}`;
             </div>
             <div style="text-align:right">
               <div class="label" style="color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.04em">Estimated savings available</div>
-              <div style="font-size:1.3rem;font-weight:700" class="value cost">${escapeHtml(formatCost(totalCost))}${totalPremium ? ` <span class="note small" style="font-weight:400">+ ${escapeHtml(formatInteger(totalPremium))} premium req.</span>` : ""}</div>
+              <div style="font-size:1.3rem;font-weight:700" class="value cost">${escapeHtml(formatCost(totalCost))}${totalPremium ? ` <span class="note small" style="font-weight:400">= ${escapeHtml(creditsFromCost(totalCost).toFixed(0))} AI credits</span>` : ""}</div>
             </div>
           </div>
           <div class="filter-bar" style="margin-top:14px;margin-bottom:0;align-items:center">
@@ -2727,7 +2737,7 @@ CLI ${metric.label}: ${metric.format(point.cli)}`;
             </label>
             <button type="button" class="copy-button" onclick="copyInsightsMarkdown(this)">\u{1F4CB} Copy summary as Markdown</button>
           </div>
-          <div class="note small" style="margin-top:12px">${formatInteger(visible.length)} of ${formatInteger(allInsights.length)} shown (source: ${escapeHtml(sourceLabel)}).${hiddenCrossSource ? ` ${formatInteger(hiddenCrossSource)} cross-source finding(s) are hidden because they compare Chat against CLI \u2014 switch the source filter to <strong>All</strong> to see them.` : ""} Dollar and premium-request figures throughout this panel are local estimates derived from parsed usage data \u2014 not official GitHub billing.</div>
+          <div class="note small" style="margin-top:12px">${formatInteger(visible.length)} of ${formatInteger(allInsights.length)} shown (source: ${escapeHtml(sourceLabel)}).${hiddenCrossSource ? ` ${formatInteger(hiddenCrossSource)} cross-source finding(s) are hidden because they compare Chat against CLI \u2014 switch the source filter to <strong>All</strong> to see them.` : ""} Dollar, AI-credit (1 credit = $0.01) and legacy premium-request figures throughout this panel are local estimates derived from parsed usage data \u2014 not official GitHub billing.</div>
           <div style="margin-top:14px">${cards}</div>
         </section>`;
   }
@@ -2894,7 +2904,7 @@ CLI ${metric.label}: ${metric.format(point.cli)}`;
       const savings = insight.estimatedSavings || {};
       const savingsBits = [];
       if (Number(savings.cost || 0) > 0) savingsBits.push(formatCost(savings.cost));
-      if (Number(savings.premiumRequests || 0) > 0) savingsBits.push(`${formatInteger(savings.premiumRequests)} premium req.`);
+      if (Number(savings.premiumRequests || 0) > 0) savingsBits.push(`${formatInteger(savings.premiumRequests)} premium req. (legacy)`);
       const savingsText = savingsBits.length ? ` (est. saving: ${savingsBits.join(", ")})` : "";
       return `- **[${String(insight.severity || "info").toUpperCase()}] ${insight.title}**${savingsText}
   ${insight.detail}
@@ -2964,14 +2974,21 @@ _Estimates are local approximations derived from parsed usage data, not official
     const table = APP_DATA.premium && APP_DATA.premium.multipliers || {};
     const name = String(modelName || "").toLowerCase();
     if (Object.prototype.hasOwnProperty.call(table, name)) return Number(table[name]);
-    for (const key of Object.keys(table)) {
+    for (const key of Object.keys(table).sort((a, b) => b.length - a.length)) {
       if (name.startsWith(key) || name.includes(key)) return Number(table[key]);
     }
     return 1;
   }
+  function rowPromptCount(session, row) {
+    const rows = session.modelBreakdown || [];
+    const sessionCalls = rows.reduce((sum, r) => sum + Number(r.calls || 0), 0);
+    if (!sessionCalls) return 0;
+    const prompts = Number(session.turnCount || 0) || 1;
+    return prompts * (Number(row.calls || 0) / sessionCalls);
+  }
   function sessionPremiumRequests(session) {
     return (session.modelBreakdown || []).reduce(
-      (sum, row) => sum + Number(row.calls || 0) * premiumMultiplierForModel(row.model),
+      (sum, row) => sum + rowPromptCount(session, row) * premiumMultiplierForModel(row.model),
       0
     );
   }
@@ -3023,7 +3040,7 @@ _Estimates are local approximations derived from parsed usage data, not official
         bucket.cached += Number(row.cached || 0);
         bucket.output += Number(row.output || 0);
         bucket.cost += Number(row.cost || 0);
-        bucket.premiumRequests += Number(row.calls || 0) * premiumMultiplierForModel(row.model);
+        bucket.premiumRequests += rowPromptCount(session, row) * premiumMultiplierForModel(row.model);
         bucket.sessionIds.add(session.id);
         map.set(key, bucket);
       });
@@ -3146,7 +3163,7 @@ _Estimates are local approximations derived from parsed usage data, not official
     const priciestModelsTable = renderTable([
       { title: "Model", render: (row) => `<strong>${escapeHtml(row.model)}</strong>` },
       { title: "Cost", numeric: true, render: (row) => `<span class="value cost">${formatCost(row.cost)}</span>` },
-      { title: "Premium reqs (est.)", numeric: true, render: (row) => formatInteger(row.premiumRequests) },
+      { title: "Premium reqs (legacy est.)", numeric: true, render: (row) => formatInteger(row.premiumRequests) },
       { title: "Calls", numeric: true, render: (row) => formatInteger(row.calls) }
     ], priciestModels);
     const cliTools = cli.tools || [];
@@ -3203,7 +3220,7 @@ _Estimates are local approximations derived from parsed usage data, not official
             <thead>
               <tr>
                 <th>Repository</th><th>Branch</th><th class="num">Sessions</th>
-                <th class="num">Input</th><th class="num">Output</th><th class="num">Cost</th><th class="num">Premium reqs (est.)</th>
+                <th class="num">Input</th><th class="num">Output</th><th class="num">Cost</th><th class="num">Premium reqs (legacy est.)</th>
               </tr>
             </thead>
             <tbody>
@@ -3214,7 +3231,7 @@ _Estimates are local approximations derived from parsed usage data, not official
                 <td data-label="Input" class="num"><span class="value input">${formatInteger(row.input)}</span></td>
                 <td data-label="Output" class="num"><span class="value output">${formatInteger(row.output)}</span></td>
                 <td data-label="Cost" class="num"><span class="value cost">${formatCost(row.cost)}</span></td>
-                <td data-label="Premium reqs (est.)" class="num">${formatInteger(row.premiumRequests)}</td>
+                <td data-label="Premium reqs (legacy est.)" class="num">${formatInteger(row.premiumRequests)}</td>
               </tr>`).join("")}
             </tbody>
           </table>
@@ -3322,10 +3339,10 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
           <div class="summary-card"><div class="label">Total output</div><div class="value output">${formatInteger(summary.totalOutput)}</div></div>
           <div class="summary-card"><div class="label">Estimated cost</div><div class="value cost">${formatCost(summary.totalCost)}</div></div>
           <div class="summary-card"><div class="label">Files touched</div><div class="value">${formatInteger(summary.fileCount)}</div></div>
-          <div class="summary-card"><div class="label">Premium requests (est.)</div><div class="value">${formatInteger(totalPremiumRequests)}</div></div>
+          <div class="summary-card"><div class="label">Premium requests (legacy est.)</div><div class="value">${formatInteger(totalPremiumRequests)}</div></div>
           ${cli.otelAvailable ? `<div class="summary-card"><div class="label">Tool calls (OTel)</div><div class="value">${formatInteger(summary.toolCallCount)}</div></div>` : ""}
         </div>
-        <div class="note small" style="margin-top:-6px;margin-bottom:12px">Premium-request counts are local estimates from <code>APP_DATA.premium.multipliers</code>, not official GitHub billing \u2014 check github.com/settings/billing for the authoritative count.${filterLabel(filterState)}</div>
+        <div class="note small" style="margin-top:-6px;margin-bottom:12px">Premium requests are the legacy meter (annual request-billed Pro/Pro+ only); credit-billed plans are metered on cost \u2014 see the AI credit budget on Overview. Counts are local estimates: one per user prompt (apportioned from <code>turnCount</code>, not per model call) times the model multiplier from <code>APP_DATA.premium.multipliers</code>, not official GitHub billing \u2014 check github.com/settings/billing for the authoritative figures.${filterLabel(filterState)}</div>
         ${filterState.active && filterState.sourceOk === false ? '<div class="state-warn" style="padding:8px 12px;border-radius:8px;background:var(--panel-2)">CLI data is currently hidden by the global source filter. Switch the source filter to "All" or "CLI" to see it here.</div>' : ""}`;
     const byModelTable = renderTable([
       { title: "Model", render: (row) => `<div><strong>${escapeHtml(row.model)}</strong><div class="note small">${formatInteger(row.calls)} calls across ${formatInteger(row.sessionCount)} sessions</div></div>` },
@@ -3334,7 +3351,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
       { title: "Cached-read input", numeric: true, render: (row) => `<span class="value cached">${formatInteger(row.cached)}</span>` },
       { title: "Output", numeric: true, render: (row) => `<span class="value output">${formatInteger(row.output)}</span>` },
       { title: "Cost", numeric: true, render: (row) => `<span class="value cost">${formatCost(row.cost)}</span>` },
-      { title: "Premium reqs (est.)", numeric: true, render: (row) => formatInteger(row.premiumRequests) }
+      { title: "Premium reqs (legacy est.)", numeric: true, render: (row) => formatInteger(row.premiumRequests) }
     ], byModelRows);
     const cliTools = cli.tools || [];
     const toolImpactTable = cliTools.length ? renderTable([
@@ -3666,10 +3683,12 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
     return `state-${status === "critical" ? "critical" : status === "warn" ? "warn" : "ok"}`;
   }
   function renderBudgetPanel() {
-    var _a;
+    var _a, _b;
     const budget = ((_a = APP_DATA.premium) == null ? void 0 : _a.budget) || {};
     const hasAllowance = budget.allowance !== null && budget.allowance !== void 0;
-    const pct = Math.max(0, Math.min(100, Number(budget.percentUsed || 0)));
+    const legacy = budget.legacyRequests || {};
+    const rawPct = Number(budget.percentUsed || 0);
+    const pct = Math.max(0, Math.min(100, rawPct));
     const gaugeState = stateClass(budget.status);
     const alerts = Array.isArray(budget.alerts) ? budget.alerts : [];
     const alertsHtml = alerts.length ? alerts.map((alert2) => `
@@ -3679,15 +3698,16 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
             </div>`).join("") : "";
     return `
         <div class="panel">
-          <div class="section-title">Premium request budget (plan: ${escapeHtml(String(budget.plan || "unknown"))})</div>
+          <div class="section-title">AI credit budget (plan: ${escapeHtml(String(budget.plan || "unknown"))})</div>
+          <div class="note small">1 credit = ${formatCost((_b = budget.creditUsd) != null ? _b : 0.01)} of model usage. Credits used = this calendar month's billed cost x 100, across both sources.</div>
           <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:10px 0">
             <div style="flex:1;min-width:220px">
               <div class="gauge ${gaugeState}"><div class="gauge-fill ${gaugeState}" style="width:${hasAllowance ? pct.toFixed(1) : 0}%"></div></div>
-              <div class="note small" style="margin-top:6px">${hasAllowance ? `${formatPercent(pct)} used` : "No allowance configured \u2014 usage tracked, not budget-compared"}</div>
+              <div class="note small" style="margin-top:6px">${hasAllowance ? `${formatPercent(rawPct)} of the monthly credit allowance used` : "No credit allowance configured \u2014 usage tracked, not budget-compared"}</div>
             </div>
             <div class="summary-grid" style="flex:2;min-width:280px">
-              <div class="summary-card"><div class="label">Allowance</div><div class="value">${hasAllowance ? formatInteger(budget.allowance) : "\u2014"}</div></div>
-              <div class="summary-card"><div class="label">Used</div><div class="value">${formatInteger(budget.used)}</div></div>
+              <div class="summary-card"><div class="label">Allowance (credits)</div><div class="value">${hasAllowance ? formatInteger(budget.allowance) : "\u2014"}</div></div>
+              <div class="summary-card"><div class="label">Credits used</div><div class="value">${formatInteger(budget.used)}</div><div class="note small">${formatCost(budget.usedUsd || 0)}</div></div>
               <div class="summary-card"><div class="label">Remaining</div><div class="value">${budget.remaining !== null && budget.remaining !== void 0 ? formatInteger(budget.remaining) : "\u2014"}</div></div>
               <div class="summary-card"><div class="label">Burn rate / day</div><div class="value">${formatCompact(budget.burnRatePerDay || 0)}</div></div>
               <div class="summary-card"><div class="label">Projected month-end</div><div class="value">${formatCompact(budget.projectedMonthEnd || 0)}</div></div>
@@ -3695,18 +3715,20 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
             </div>
           </div>
           ${alertsHtml ? `<div class="insights-grid">${alertsHtml}</div>` : ""}
+          <div class="note small" style="margin-top:8px">Legacy premium requests this month: <strong>${formatInteger(legacy.used || 0)}</strong>${legacy.allowance ? ` of ${formatInteger(legacy.allowance)}` : ""} \u2014 counted per user prompt x model multiplier, and applicable only to annual Pro/Pro+ subscriptions still billed in requests. Not used for the gauge above.</div>
         </div>`;
   }
   function renderSourceSplitPanel() {
     const chat = unifiedFilteredBySourceKey("chat");
     const cli = unifiedFilteredBySourceKey("cli");
     const row = (label, source) => {
+      var _a, _b;
       const block = pickTokenBlock(source.attributed, source.billed);
       return `
           <div class="summary-card">
             <div class="label">${escapeHtml(label)}</div>
             <div class="value cost">${formatCost(block.cost)}</div>
-            <div class="note small">${formatInteger(source.sessionCount)} sessions \xB7 ${formatInteger(block.input + block.output)} tokens \xB7 ${formatInteger(source.callCount)} calls</div>
+            <div class="note small">${formatInteger(source.sessionCount)} sessions \xB7 ${formatInteger(block.input + block.output)} tokens \xB7 ${formatInteger((_a = source.modelCalls) != null ? _a : source.callCount)} model calls \xB7 ${formatInteger((_b = source.promptCount) != null ? _b : source.callCount)} prompts</div>
           </div>`;
     };
     return `
@@ -3769,7 +3791,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
             <span class="badge">${escapeHtml(insight.severity || "info")}</span>
           </div>
           <div class="note small">${escapeHtml(insight.detail || "")}</div>
-          ${insight.estimatedSavings ? `<div class="note small">Est. savings: ${formatCost(insight.estimatedSavings.cost || 0)} \xB7 ${formatInteger(insight.estimatedSavings.premiumRequests || 0)} premium requests</div>` : ""}
+          ${insight.estimatedSavings ? `<div class="note small">Est. savings: ${formatCost(insight.estimatedSavings.cost || 0)} \xB7 ${creditsFromCost(insight.estimatedSavings.cost || 0).toFixed(0)} AI credits</div>` : ""}
         </div>`).join("");
     return `
         <div class="panel">
@@ -3783,6 +3805,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
     switchAnalysisTab("insights");
   }
   function renderOverviewTab() {
+    var _a, _b;
     const totals = unifiedFilteredTotals();
     const block = pickTokenBlock(totals.attributed, totals.billed);
     const unified = APP_DATA.unified || {};
@@ -3792,12 +3815,13 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
     const kpis = `
         <div class="summary-grid">
           <div class="summary-card"><div class="label">Sessions</div><div class="value">${formatInteger(totals.sessionCount)}</div></div>
-          <div class="summary-card"><div class="label">Calls</div><div class="value">${formatInteger(totals.callCount)}</div></div>
+          <div class="summary-card" title="Model API calls \u2014 an agent loop makes many per prompt."><div class="label">Model calls</div><div class="value">${formatInteger((_a = totals.modelCalls) != null ? _a : totals.callCount)}</div></div>
+          <div class="summary-card" title="User prompts submitted \u2014 the unit legacy premium requests are charged in."><div class="label">Prompts</div><div class="value">${formatInteger((_b = totals.promptCount) != null ? _b : totals.callCount)}</div></div>
           <div class="summary-card"><div class="label">Input tokens</div><div class="value input">${formatInteger(block.input)}</div></div>
           <div class="summary-card"><div class="label">Cached tokens</div><div class="value cached">${formatInteger(block.cached)}</div></div>
           <div class="summary-card"><div class="label">Output tokens</div><div class="value output">${formatInteger(block.output)}</div></div>
           <div class="summary-card"><div class="label">${isBilledMode() ? "Billed cost" : "Attributed est. cost"}</div><div class="value cost">${formatCost(block.cost)}</div></div>
-          <div class="summary-card"><div class="label">Premium requests</div><div class="value">${formatInteger(totals.premiumRequests)}</div></div>
+          <div class="summary-card" title="1 AI credit = $0.01 of model usage."><div class="label">AI credits</div><div class="value credits">${creditsFromCost(block.cost).toFixed(1)}</div></div>
         </div>`;
     const emptyNote = !dailyRows.length && !(unified.monthly || []).length ? '<div class="note is-empty">No usage data recorded yet for the selected filters.</div>' : "";
     return `
@@ -3817,7 +3841,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
         ${renderTopInsights()}
         <div class="panel">
           <div class="note small">
-            <strong>Estimate disclaimer:</strong> token pricing, premium-request multipliers, and plan allowances shown throughout this dashboard are local estimates maintained in this repo (see <code>model_pricing.py</code> / <code>premium_requests.py</code>), fully configurable, and are <strong>not</strong> official GitHub billing data. For authoritative premium-request counts and billing, see your GitHub account's Copilot billing/usage page.
+            <strong>Estimate disclaimer:</strong> token pricing, AI-credit plan allowances, and legacy premium-request multipliers shown throughout this dashboard are local estimates maintained in this repo (see <code>model_pricing.py</code> / <code>premium_requests.py</code>), fully configurable, and are <strong>not</strong> official GitHub billing data. Costs exclude cache-write tokens, long-context pricing tiers, and the auto-model-selection discount, so they run low. For authoritative credit consumption and billing, see your GitHub account's Copilot billing/usage page.
           </div>
         </div>`;
   }
@@ -4040,15 +4064,16 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
     renderApp();
   }
   function renderSummaryCards() {
-    var _a;
+    var _a, _b, _c;
     const totals = unifiedFilteredTotals();
     const block = pickTokenBlock(totals.attributed, totals.billed);
     const costLabel = isBilledMode() ? "Billed API cost" : "Attributed est. cost";
     const creditsLabel = isBilledMode() ? "Billed AI credits" : "Attributed AI credits";
     const budget = ((_a = APP_DATA.premium) == null ? void 0 : _a.budget) || {};
     const hasAllowance = budget.allowance !== null && budget.allowance !== void 0;
-    const pct = hasAllowance ? Math.max(0, Math.min(100, Number(budget.percentUsed || 0))) : 0;
-    const quotaLabel = hasAllowance ? `${formatPercent(pct)} of ${formatInteger(budget.allowance)}` : "no allowance set";
+    const rawPct = hasAllowance ? Number(budget.percentUsed || 0) : 0;
+    const pct = Math.max(0, Math.min(100, rawPct));
+    const quotaLabel = hasAllowance ? `${formatPercent(rawPct)} of ${formatInteger(budget.allowance)} credits` : "no allowance set";
     const quotaGauge = hasAllowance ? `<div class="gauge ${stateClass2(budget.status)}" style="margin-top:6px"><div class="gauge-fill ${stateClass2(budget.status)}" style="width:${pct}%"></div></div>` : "";
     return `
         <div class="summary-groups">
@@ -4056,7 +4081,8 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
             <div class="summary-group-label">Usage</div>
             <div class="summary-grid">
               <div class="summary-card"><div class="label">Sessions</div><div class="value">${formatInteger(totals.sessionCount)}</div></div>
-              <div class="summary-card"><div class="label">Calls</div><div class="value">${formatInteger(totals.callCount)}</div></div>
+              <div class="summary-card" title="Model API calls. An agentic CLI session makes many calls per prompt, so this is much larger than the prompt count."><div class="label">Model calls</div><div class="value">${formatInteger((_b = totals.modelCalls) != null ? _b : totals.callCount)}</div></div>
+              <div class="summary-card" title="User prompts submitted. This is what legacy premium-request billing counts, not model calls."><div class="label">Prompts</div><div class="value">${formatInteger((_c = totals.promptCount) != null ? _c : totals.callCount)}</div></div>
               <div class="summary-card"><div class="label">Total input tokens</div><div class="value input">${formatInteger(block.input)}</div></div>
               <div class="summary-card"><div class="label">Uncached input tokens</div><div class="value uncached">${formatInteger(block.uncached)}</div></div>
               <div class="summary-card"><div class="label">Cached-read input tokens</div><div class="value cached">${formatInteger(block.cached)}</div></div>
@@ -4064,12 +4090,12 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
             </div>
           </div>
           <div class="summary-group">
-            <div class="summary-group-label">Cost &amp; premium</div>
+            <div class="summary-group-label">Cost &amp; AI credits</div>
             <div class="summary-grid">
               <div class="summary-card"><div class="label">${escapeHtml(costLabel)}</div><div class="value cost">${formatCost(block.cost)}</div></div>
-              <div class="summary-card"><div class="label">${escapeHtml(creditsLabel)}</div><div class="value credits">${(block.cost / 0.01).toFixed(1)}</div></div>
-              <div class="summary-card"><div class="label">Premium requests</div><div class="value">${formatInteger(totals.premiumRequests)}</div></div>
-              <div class="summary-card"><div class="label">Premium quota used</div><div class="value">${escapeHtml(quotaLabel)}</div>${quotaGauge}</div>
+              <div class="summary-card" title="1 AI credit = $0.01 of model usage \u2014 the unit GitHub meters paid plans in."><div class="label">${escapeHtml(creditsLabel)}</div><div class="value credits">${creditsFromCost(block.cost).toFixed(1)}</div></div>
+              <div class="summary-card"><div class="label">Credit allowance used</div><div class="value">${escapeHtml(quotaLabel)}</div>${quotaGauge}</div>
+              <div class="summary-card" title="Legacy premium-request estimate (one per user prompt x model multiplier). Applies only to annual Pro/Pro+ plans still billed in requests."><div class="label">Premium requests (legacy)</div><div class="value">${formatInteger(totals.premiumRequests)}</div></div>
             </div>
           </div>
         </div>`;
@@ -4111,7 +4137,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
           <div class="header-top">
             <div>
               <h1>\u{1F4CA} Copilot Usage Explorer ${anonymizedBadge}</h1>
-              <div class="subtitle">Unified view across VS Code Copilot Chat and the GitHub Copilot CLI: <strong>prompt snapshots</strong> vs. <strong>billed per-call usage</strong>, premium-request budget tracking, and cost/quota recommendations.</div>
+              <div class="subtitle">Unified view across VS Code Copilot Chat and the GitHub Copilot CLI: <strong>prompt snapshots</strong> vs. <strong>billed per-call usage</strong>, AI-credit budget tracking, and cost/quota recommendations.</div>
               <div class="subtitle small">Generated: ${escapeHtml(APP_DATA.generatedAt)} \xB7 Legacy chat period: <strong>${escapeHtml(periodLabel)}</strong> \xB7 Token mode: <strong>${escapeHtml(modeLabel)}</strong> \xB7 Chat cached share: ${formatPercent(cacheHitRateForBlock(legacyTotals))}</div>
             </div>
             <div style="display:flex;gap:12px;flex-direction:column;align-items:flex-end;min-width:200px">

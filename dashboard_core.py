@@ -492,17 +492,37 @@ def compose_app_data(
         for session in app_data.get("sessions", []) or []:
           session["premiumRequests"] = premium_by_session.get(session.get("id"), 0.0)
 
-        def _attach_model_premium(model_rows: list[dict[str, Any]] | None) -> None:
+        # Legacy premium requests are charged per user PROMPT, not per model
+        # call (see usage_model._premium_requests_for_prompts).
+        #
+        # A chat model row's `count` IS a prompt count (one logged chat request
+        # per prompt), so those rows weight by their own count - which also
+        # keeps the period-scoped bundles below period-correct. A CLI row's
+        # `calls` counts model calls, which an agent loop inflates several-fold
+        # over the prompts that drove them, so CLI rows weight by the prompt
+        # counts apportioned per model in `cli_records` instead (same
+        # whole-history scope as `cli.byModel`), falling back to the row's own
+        # count only for a model the record pass never saw.
+        cli_prompts_by_model: dict[str, float] = {}
+        for record in cli_records:
+          model_key = str(record.get("model") or "").lower()
+          cli_prompts_by_model[model_key] = cli_prompts_by_model.get(model_key, 0.0) + float(record.get("promptCount", 0.0) or 0.0)
+
+        def _attach_model_premium(
+          model_rows: list[dict[str, Any]] | None,
+          prompts_by_model: dict[str, float] | None = None,
+        ) -> None:
           for row in model_rows or []:
             name = row.get("name") or row.get("model")
             count = float(row.get("count", row.get("calls", 0)) or 0)
-            row["premiumRequests"] = count * get_multiplier(str(name or ""), multipliers)
+            prompts = count if prompts_by_model is None else prompts_by_model.get(str(name or "").lower(), count)
+            row["premiumRequests"] = prompts * get_multiplier(str(name or ""), multipliers)
 
         _attach_model_premium(app_data.get("analysis", {}).get("models"))
         for period_key in ("allTime", "monthly"):
           period_bundle = app_data.get("periods", {}).get(period_key) or {}
           _attach_model_premium((period_bundle.get("analysis") or {}).get("models"))
-        _attach_model_premium(app_data.get("cli", {}).get("byModel"))
+        _attach_model_premium(app_data.get("cli", {}).get("byModel"), cli_prompts_by_model)
       except Exception:
         pass
     except Exception:
@@ -623,8 +643,8 @@ def main(argv: list[str] | None = None) -> None:
       "--plan",
       default=None,
       help=(
-        "GitHub Copilot plan used to resolve the premium-request monthly allowance "
-        "(free|pro|pro_plus|business|enterprise). Default: $COPILOT_PLAN, else 'pro'. "
+        "GitHub Copilot plan used to resolve the monthly AI-credit allowance "
+        "(free|pro|student|pro_plus|max|business|enterprise). Default: $COPILOT_PLAN, else 'pro'. "
         "This is a local estimate only, not official GitHub billing."
       ),
     )
@@ -633,15 +653,16 @@ def main(argv: list[str] | None = None) -> None:
       type=int,
       default=None,
       help=(
-        "Explicit monthly premium-request allowance, overriding the --plan default. "
-        "Default: $COPILOT_PREMIUM_QUOTA, else the resolved plan's documented allowance."
+        "Explicit monthly AI-credit allowance (1 credit = $0.01 of model usage), "
+        "overriding the --plan default. Default: $COPILOT_CREDIT_QUOTA (or legacy "
+        "$COPILOT_PREMIUM_QUOTA), else the resolved plan's documented allowance."
       ),
     )
     parser.add_argument(
       "--premium-config",
       default=None,
       help=(
-        "Path to a JSON config file overriding premium-request plan/allowance/multipliers/thresholds. "
+        "Path to a JSON config file overriding plan/credit-allowance/legacy-multipliers/thresholds. "
         "Default: $COPILOT_PREMIUM_CONFIG, else ~/.copilot-dashboard/premium.json, if present."
       ),
     )

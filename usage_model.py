@@ -125,8 +125,21 @@ def day_key_ms(ts_ms: float | int | None) -> str | None:
         return None
 
 
-def _premium_requests_for_call(model_name: str | None, calls: float = 1.0, multipliers: dict[str, float] | None = None) -> float:
-    return get_multiplier(model_name, multipliers) * float(calls or 0.0)
+# Legacy premium requests are charged PER USER PROMPT, not per model call:
+# GitHub counts one premium request for the prompt a person submits and does
+# not charge again for the model calls the agent then makes on its own to
+# answer it. That distinction is invisible in chat telemetry (one logged chat
+# event == one prompt) but enormous in the CLI, where a single prompt can
+# drive hundreds of model calls in an agent loop. Every record therefore
+# carries BOTH counters explicitly - `modelCalls` (API calls, what drives
+# token cost) and `promptCount` (user turns, what drives premium requests) -
+# so no consumer has to guess which one a bare "calls" number meant.
+def _premium_requests_for_prompts(
+    model_name: str | None,
+    prompts: float = 1.0,
+    multipliers: dict[str, float] | None = None,
+) -> float:
+    return get_multiplier(model_name, multipliers) * float(prompts or 0.0)
 
 
 def records_from_chat_sessions(
@@ -165,7 +178,10 @@ def records_from_chat_sessions(
                     "branch": branch,
                     "attributed": attributed,
                     "billed": billed,
-                    "premiumRequests": _premium_requests_for_call(model_name, 1.0, multipliers),
+                    # One logged chat event == one user prompt == one model call.
+                    "modelCalls": 1.0,
+                    "promptCount": 1.0,
+                    "premiumRequests": _premium_requests_for_prompts(model_name, 1.0, multipliers),
                 })
         else:
             # Fallback: no per-call events available (e.g. compacted session
@@ -185,7 +201,11 @@ def records_from_chat_sessions(
                 "branch": branch,
                 "attributed": attributed,
                 "billed": billed,
-                "premiumRequests": _premium_requests_for_call(model_name, chat_count, multipliers),
+                # Session-level aggregate: `chat_count` prompts, and the same
+                # count is the best available proxy for model calls.
+                "modelCalls": chat_count,
+                "promptCount": chat_count,
+                "premiumRequests": _premium_requests_for_prompts(model_name, chat_count, multipliers),
             })
     return records
 
@@ -201,6 +221,15 @@ def records_from_cli(
     `modelBreakdown` entry per session. `attributed` and `billed` are
     populated identically since the CLI has no prompt-growth attribution
     concept - only one raw billed total per model call bucket.
+
+    Calls vs prompts: `modelBreakdown[].calls` counts model API calls, while
+    the session's `turnCount` counts the user's prompts - and an agentic CLI
+    session routinely spends hundreds of calls on a handful of prompts. Both
+    are recorded. Because `turnCount` is per session and not broken down by
+    model, a multi-model session's prompts are apportioned across its model
+    buckets in proportion to each bucket's share of the session's calls; that
+    is an estimate for the legacy premium-request figure only and never
+    affects token or cost totals.
     """
     records: list[dict[str, Any]] = []
     if not cli_data or not cli_data.get("available"):
@@ -215,9 +244,14 @@ def records_from_cli(
         breakdown = session.get("modelBreakdown") or []
         if not breakdown:
             continue
+        session_calls = sum(float(row.get("calls", 0) or 0) for row in breakdown)
+        # A session with turns but no recorded turnCount still had at least the
+        # one prompt that produced its calls; never let prompts round to zero.
+        session_prompts = float(session.get("turnCount", 0) or 0) or (1.0 if session_calls else 0.0)
         for model_row in breakdown:
             model_name = str(model_row.get("model") or "unknown")
             calls = float(model_row.get("calls", 0) or 0)
+            prompts = (session_prompts * (calls / session_calls)) if session_calls else 0.0
             block = {
                 "input": float(model_row.get("input", 0.0) or 0.0),
                 "cached": float(model_row.get("cached", 0.0) or 0.0),
@@ -236,7 +270,9 @@ def records_from_cli(
                 # Attributed == billed for CLI: same raw totals, no double-count.
                 "attributed": dict(block),
                 "billed": dict(block),
-                "premiumRequests": _premium_requests_for_call(model_name, calls, multipliers),
+                "modelCalls": calls,
+                "promptCount": prompts,
+                "premiumRequests": _premium_requests_for_prompts(model_name, prompts, multipliers),
             })
     return records
 
@@ -266,7 +302,13 @@ def _new_bucket() -> dict[str, Any]:
         "attributed": dict(_EMPTY_BLOCK),
         "billed": dict(_EMPTY_BLOCK),
         "premiumRequests": 0.0,
+        # `callCount` counts RECORDS aggregated into this bucket (one per chat
+        # event, one per CLI session+model bucket). `modelCalls` counts actual
+        # model API calls and `promptCount` actual user prompts - for chat all
+        # three coincide, for the CLI they differ by orders of magnitude.
         "callCount": 0,
+        "modelCalls": 0.0,
+        "promptCount": 0.0,
         "sessionIds": set(),
     }
 
@@ -278,6 +320,8 @@ def _finalize_bucket(key_name: str, key_value: str, bucket: dict[str, Any], extr
         "billed": bucket["billed"],
         "premiumRequests": bucket["premiumRequests"],
         "callCount": bucket["callCount"],
+        "modelCalls": bucket["modelCalls"],
+        "promptCount": bucket["promptCount"],
         "sessionCount": len(bucket["sessionIds"]),
     }
     if extra:
@@ -317,6 +361,19 @@ def build_unified(records: list[dict[str, Any]] | None, now_ms: float | int | No
         premium = float(record.get("premiumRequests", 0.0) or 0.0)
         attributed = record.get("attributed") or _EMPTY_BLOCK
         billed = record.get("billed") or _EMPTY_BLOCK
+        # Default to 1 call / 1 prompt per record so a record produced by an
+        # older caller that predates these fields still counts as it always did.
+        model_calls = float(record.get("modelCalls", 1.0) or 0.0)
+        prompt_count = float(record.get("promptCount", 1.0) or 0.0)
+
+        def _accumulate(bucket: dict[str, Any]) -> None:
+            _add_block(bucket["attributed"], attributed)
+            _add_block(bucket["billed"], billed)
+            bucket["premiumRequests"] += premium
+            bucket["callCount"] += 1
+            bucket["modelCalls"] += model_calls
+            bucket["promptCount"] += prompt_count
+            bucket["sessionIds"].add(session_id)
 
         if ts:
             first_ts = ts if first_ts is None else min(first_ts, ts)
@@ -328,27 +385,12 @@ def build_unified(records: list[dict[str, Any]] | None, now_ms: float | int | No
         for bucket_map, key in ((daily, day_key), (monthly, month_key)):
             if key is None:
                 continue
-            bucket = bucket_map[key]
-            _add_block(bucket["attributed"], attributed)
-            _add_block(bucket["billed"], billed)
-            bucket["premiumRequests"] += premium
-            bucket["callCount"] += 1
-            bucket["sessionIds"].add(session_id)
+            _accumulate(bucket_map[key])
 
         if day_key is not None:
-            src_bucket = daily_by_source[day_key][source]
-            _add_block(src_bucket["attributed"], attributed)
-            _add_block(src_bucket["billed"], billed)
-            src_bucket["premiumRequests"] += premium
-            src_bucket["callCount"] += 1
-            src_bucket["sessionIds"].add(session_id)
+            _accumulate(daily_by_source[day_key][source])
         if month_key is not None:
-            src_bucket = monthly_by_source[month_key][source]
-            _add_block(src_bucket["attributed"], attributed)
-            _add_block(src_bucket["billed"], billed)
-            src_bucket["premiumRequests"] += premium
-            src_bucket["callCount"] += 1
-            src_bucket["sessionIds"].add(session_id)
+            _accumulate(monthly_by_source[month_key][source])
 
         for bucket_map, key in (
             (by_model, model),
@@ -356,18 +398,9 @@ def build_unified(records: list[dict[str, Any]] | None, now_ms: float | int | No
             (by_source, source),
             (by_host, host),
         ):
-            bucket = bucket_map[key]
-            _add_block(bucket["attributed"], attributed)
-            _add_block(bucket["billed"], billed)
-            bucket["premiumRequests"] += premium
-            bucket["callCount"] += 1
-            bucket["sessionIds"].add(session_id)
+            _accumulate(bucket_map[key])
 
-        _add_block(totals["attributed"], attributed)
-        _add_block(totals["billed"], billed)
-        totals["premiumRequests"] += premium
-        totals["callCount"] += 1
-        totals["sessionIds"].add(session_id)
+        _accumulate(totals)
 
     def _sorted_rows(bucket_map: dict[str, dict[str, Any]], key_name: str, use_billed: bool = True) -> list[dict[str, Any]]:
         rows = [_finalize_bucket(key_name, key, bucket) for key, bucket in bucket_map.items()]

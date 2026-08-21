@@ -2,7 +2,7 @@ import { unifiedFilteredBySourceKey, unifiedFilteredDailyRows, unifiedFilteredTo
 import { switchAnalysisTab, switchTab } from './actions.js';
 import { currentFilters, filterInsightsBySource } from './filters.js';
 import { renderUnifiedTrendChart } from './charts.js';
-import { escapeHtml, formatCompact, formatCost, formatInteger, formatPercent, pickTokenBlock } from './format.js';
+import { creditsFromCost, escapeHtml, formatCompact, formatCost, formatInteger, formatPercent, pickTokenBlock } from './format.js';
 import { APP_DATA, STATE, isBilledMode } from './state.js';
 
     // Maps a status ('ok'|'warn'|'critical') onto the CSS state-class
@@ -12,10 +12,19 @@ import { APP_DATA, STATE, isBilledMode } from './state.js';
       return `state-${status === 'critical' ? 'critical' : status === 'warn' ? 'warn' : 'ok'}`;
     }
 
+    // The budget is denominated in AI credits (1 credit = $0.01 of model
+    // usage), which is how GitHub meters paid plans: `used` is this month's
+    // billed cost x 100, not a count of calls or prompts. Legacy
+    // premium-request figures live in `budget.legacyRequests` and are shown
+    // separately so the two units are never mixed in one number.
     function renderBudgetPanel() {
       const budget = APP_DATA.premium?.budget || {};
       const hasAllowance = budget.allowance !== null && budget.allowance !== undefined;
-      const pct = Math.max(0, Math.min(100, Number(budget.percentUsed || 0)));
+      const legacy = budget.legacyRequests || {};
+      // Gauge fill is clamped to 0-100%; the caption reports the real
+      // percentage so an overrun stays visible as an overrun.
+      const rawPct = Number(budget.percentUsed || 0);
+      const pct = Math.max(0, Math.min(100, rawPct));
       const gaugeState = stateClass(budget.status);
       const alerts = Array.isArray(budget.alerts) ? budget.alerts : [];
       const alertsHtml = alerts.length
@@ -27,15 +36,16 @@ import { APP_DATA, STATE, isBilledMode } from './state.js';
         : '';
       return `
         <div class="panel">
-          <div class="section-title">Premium request budget (plan: ${escapeHtml(String(budget.plan || 'unknown'))})</div>
+          <div class="section-title">AI credit budget (plan: ${escapeHtml(String(budget.plan || 'unknown'))})</div>
+          <div class="note small">1 credit = ${formatCost(budget.creditUsd ?? 0.01)} of model usage. Credits used = this calendar month's billed cost x 100, across both sources.</div>
           <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:10px 0">
             <div style="flex:1;min-width:220px">
               <div class="gauge ${gaugeState}"><div class="gauge-fill ${gaugeState}" style="width:${hasAllowance ? pct.toFixed(1) : 0}%"></div></div>
-              <div class="note small" style="margin-top:6px">${hasAllowance ? `${formatPercent(pct)} used` : 'No allowance configured — usage tracked, not budget-compared'}</div>
+              <div class="note small" style="margin-top:6px">${hasAllowance ? `${formatPercent(rawPct)} of the monthly credit allowance used` : 'No credit allowance configured — usage tracked, not budget-compared'}</div>
             </div>
             <div class="summary-grid" style="flex:2;min-width:280px">
-              <div class="summary-card"><div class="label">Allowance</div><div class="value">${hasAllowance ? formatInteger(budget.allowance) : '—'}</div></div>
-              <div class="summary-card"><div class="label">Used</div><div class="value">${formatInteger(budget.used)}</div></div>
+              <div class="summary-card"><div class="label">Allowance (credits)</div><div class="value">${hasAllowance ? formatInteger(budget.allowance) : '—'}</div></div>
+              <div class="summary-card"><div class="label">Credits used</div><div class="value">${formatInteger(budget.used)}</div><div class="note small">${formatCost(budget.usedUsd || 0)}</div></div>
               <div class="summary-card"><div class="label">Remaining</div><div class="value">${budget.remaining !== null && budget.remaining !== undefined ? formatInteger(budget.remaining) : '—'}</div></div>
               <div class="summary-card"><div class="label">Burn rate / day</div><div class="value">${formatCompact(budget.burnRatePerDay || 0)}</div></div>
               <div class="summary-card"><div class="label">Projected month-end</div><div class="value">${formatCompact(budget.projectedMonthEnd || 0)}</div></div>
@@ -43,6 +53,7 @@ import { APP_DATA, STATE, isBilledMode } from './state.js';
             </div>
           </div>
           ${alertsHtml ? `<div class="insights-grid">${alertsHtml}</div>` : ''}
+          <div class="note small" style="margin-top:8px">Legacy premium requests this month: <strong>${formatInteger(legacy.used || 0)}</strong>${legacy.allowance ? ` of ${formatInteger(legacy.allowance)}` : ''} — counted per user prompt x model multiplier, and applicable only to annual Pro/Pro+ subscriptions still billed in requests. Not used for the gauge above.</div>
         </div>`;
     }
 
@@ -55,7 +66,7 @@ import { APP_DATA, STATE, isBilledMode } from './state.js';
           <div class="summary-card">
             <div class="label">${escapeHtml(label)}</div>
             <div class="value cost">${formatCost(block.cost)}</div>
-            <div class="note small">${formatInteger(source.sessionCount)} sessions · ${formatInteger(block.input + block.output)} tokens · ${formatInteger(source.callCount)} calls</div>
+            <div class="note small">${formatInteger(source.sessionCount)} sessions · ${formatInteger(block.input + block.output)} tokens · ${formatInteger(source.modelCalls ?? source.callCount)} model calls · ${formatInteger(source.promptCount ?? source.callCount)} prompts</div>
           </div>`;
       };
       return `
@@ -125,7 +136,7 @@ import { APP_DATA, STATE, isBilledMode } from './state.js';
             <span class="badge">${escapeHtml(insight.severity || 'info')}</span>
           </div>
           <div class="note small">${escapeHtml(insight.detail || '')}</div>
-          ${insight.estimatedSavings ? `<div class="note small">Est. savings: ${formatCost(insight.estimatedSavings.cost || 0)} · ${formatInteger(insight.estimatedSavings.premiumRequests || 0)} premium requests</div>` : ''}
+          ${insight.estimatedSavings ? `<div class="note small">Est. savings: ${formatCost(insight.estimatedSavings.cost || 0)} · ${creditsFromCost(insight.estimatedSavings.cost || 0).toFixed(0)} AI credits</div>` : ''}
         </div>`).join('');
       return `
         <div class="panel">
@@ -151,12 +162,13 @@ import { APP_DATA, STATE, isBilledMode } from './state.js';
       const kpis = `
         <div class="summary-grid">
           <div class="summary-card"><div class="label">Sessions</div><div class="value">${formatInteger(totals.sessionCount)}</div></div>
-          <div class="summary-card"><div class="label">Calls</div><div class="value">${formatInteger(totals.callCount)}</div></div>
+          <div class="summary-card" title="Model API calls — an agent loop makes many per prompt."><div class="label">Model calls</div><div class="value">${formatInteger(totals.modelCalls ?? totals.callCount)}</div></div>
+          <div class="summary-card" title="User prompts submitted — the unit legacy premium requests are charged in."><div class="label">Prompts</div><div class="value">${formatInteger(totals.promptCount ?? totals.callCount)}</div></div>
           <div class="summary-card"><div class="label">Input tokens</div><div class="value input">${formatInteger(block.input)}</div></div>
           <div class="summary-card"><div class="label">Cached tokens</div><div class="value cached">${formatInteger(block.cached)}</div></div>
           <div class="summary-card"><div class="label">Output tokens</div><div class="value output">${formatInteger(block.output)}</div></div>
           <div class="summary-card"><div class="label">${isBilledMode() ? 'Billed cost' : 'Attributed est. cost'}</div><div class="value cost">${formatCost(block.cost)}</div></div>
-          <div class="summary-card"><div class="label">Premium requests</div><div class="value">${formatInteger(totals.premiumRequests)}</div></div>
+          <div class="summary-card" title="1 AI credit = $0.01 of model usage."><div class="label">AI credits</div><div class="value credits">${creditsFromCost(block.cost).toFixed(1)}</div></div>
         </div>`;
 
       const emptyNote = (!dailyRows.length && !(unified.monthly || []).length)
@@ -180,7 +192,7 @@ import { APP_DATA, STATE, isBilledMode } from './state.js';
         ${renderTopInsights()}
         <div class="panel">
           <div class="note small">
-            <strong>Estimate disclaimer:</strong> token pricing, premium-request multipliers, and plan allowances shown throughout this dashboard are local estimates maintained in this repo (see <code>model_pricing.py</code> / <code>premium_requests.py</code>), fully configurable, and are <strong>not</strong> official GitHub billing data. For authoritative premium-request counts and billing, see your GitHub account's Copilot billing/usage page.
+            <strong>Estimate disclaimer:</strong> token pricing, AI-credit plan allowances, and legacy premium-request multipliers shown throughout this dashboard are local estimates maintained in this repo (see <code>model_pricing.py</code> / <code>premium_requests.py</code>), fully configurable, and are <strong>not</strong> official GitHub billing data. Costs exclude cache-write tokens, long-context pricing tiers, and the auto-model-selection discount, so they run low. For authoritative credit consumption and billing, see your GitHub account's Copilot billing/usage page.
           </div>
         </div>`;
     }

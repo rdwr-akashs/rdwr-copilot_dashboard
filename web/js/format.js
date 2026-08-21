@@ -157,6 +157,20 @@ import { STATE, isBilledMode } from './state.js';
       return `$${Number(value || 0).toFixed(4)}`;
     }
 
+    // GitHub meters paid Copilot plans in AI credits, where 1 credit = $0.01 of
+    // model usage (premium_requests.CREDIT_USD server-side). Any credit figure
+    // shown in the UI is a dollar cost x 100 — never a count of calls or
+    // prompts — so the conversion lives in exactly one place.
+    export const CREDIT_USD = 0.01;
+
+    export function creditsFromCost(cost) {
+      return Number(cost || 0) / CREDIT_USD;
+    }
+
+    export function formatCredits(cost) {
+      return `${creditsFromCost(cost).toFixed(1)} credits`;
+    }
+
     export function formatDuration(ms) {
       const value = Number(ms || 0);
       if (!value) return '—';
