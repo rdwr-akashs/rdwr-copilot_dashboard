@@ -268,25 +268,45 @@
       grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 10px;
     }
+    /* Labels are kept short enough to stay on one line, so the value sits
+       directly under its own label rather than being pushed to the bottom of
+       the tallest card in the row (which left a big gap under short cards
+       next to one carrying a note plus a gauge). */
     .summary-card {
       background: var(--panel-2);
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 14px;
+      display: flex;
+      flex-direction: column;
     }
     .summary-card .label { color: var(--muted); font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.04em; }
-    .summary-card .value { margin-top: 6px; font-size: 1.25rem; font-weight: 650; }
+    .summary-card .value {
+      margin-top: 6px;
+      font-size: 1.25rem;
+      font-weight: 650;
+      font-variant-numeric: tabular-nums;
+    }
     .value.input { color: var(--blue); }
     .value.output { color: var(--orange); }
     .value.cached { color: var(--green); }
     .value.cost { color: var(--teal); }
     .value.credits { color: var(--yellow); }
+    /* Status colouring for a plain metric value. Distinct from the
+       `.state-*` utilities, which also add a left border and an icon and are
+       meant for whole cards, not for the number inside one. */
+    .value.is-ok { color: var(--state-ok); }
+    .value.is-warn { color: var(--state-warn); }
+    .value.is-critical { color: var(--state-critical); }
+    /* The rule sits below the tabs (they precede the summary cards in the
+       header), so the active tab reads as attached to the content beneath
+       it rather than to the filter bar above. */
     .tabs {
       display: flex;
       gap: 6px;
-      margin-top: 20px;
-      padding-top: 16px;
-      border-top: 1px solid var(--border);
+      margin-top: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
       flex-wrap: wrap;
     }
     .tab-button {
@@ -310,14 +330,19 @@
       padding: 18px;
     }
     .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
-    .filter-bar input, .filter-bar select {
+    /* Text-ish inputs only. Checkboxes and radios must keep their native box
+       and intrinsic size: the blanket rules below gave them a 220px flex
+       basis and 10px of padding, which stranded the tick box far to the left
+       of the label text it belongs to. */
+    .filter-bar input:not([type="checkbox"]):not([type="radio"]),
+    .filter-bar select {
       background: var(--panel-2);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 10px 12px;
       color: var(--text);
     }
-    .filter-bar input { flex: 1 1 260px; min-width: 220px; }
+    .filter-bar input:not([type="checkbox"]):not([type="radio"]) { flex: 1 1 260px; min-width: 220px; }
     .legend { color: var(--muted); font-size: 0.9rem; }
 
     /* Sticky global filter bar. The JS agent may mark either the bar
@@ -485,11 +510,15 @@
     .state-ok { border-left-color: var(--state-ok); }
     .state-warn { border-left-color: var(--state-warn); }
     .state-critical { border-left-color: var(--state-critical); }
+    /* Floated, not merely inline-block: these classes land on block
+       containers (alert/insight cards) whose first child is itself a block,
+       so an inline glyph got a line box of its own and the icon sat on an
+       empty row above the title instead of beside it. */
     .state-ok::before, .state-warn::before, .state-critical::before {
-      display: inline-block;
+      float: left;
       width: 1em;
       font-weight: 800;
-      margin-right: 4px;
+      margin-right: 8px;
       text-align: center;
     }
     .state-ok::before { content: "\2713"; color: var(--state-ok); }
@@ -530,6 +559,37 @@
     .gauge.state-warn .gauge-fill, .gauge-fill.state-warn { background: var(--state-warn); }
     .gauge.state-critical .gauge-fill, .gauge-fill.state-critical { background: var(--state-critical); }
     .gauge-label { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--muted); margin-top: 6px; }
+
+    /* The gauge takes a `.state-*` class purely to pick a colour, but those
+       utilities also inject an icon glyph via ::before and a 4px left
+       border. Inside a 12px-tall, overflow:hidden track that glyph creates
+       a line box which pushes the fill out of view entirely -- the bar
+       rendered empty with a stray ✕ at its left edge. Opt the gauge and its
+       fill out of both decorations; the surrounding caption still states
+       the status in words. */
+    .gauge.state-ok, .gauge.state-warn, .gauge.state-critical {
+      border-left-width: 1px;
+      border-left-color: var(--border);
+    }
+    .gauge-fill.state-ok, .gauge-fill.state-warn, .gauge-fill.state-critical {
+      border-left-width: 0;
+    }
+    .gauge.state-ok::before, .gauge.state-warn::before, .gauge.state-critical::before,
+    .gauge-fill.state-ok::before, .gauge-fill.state-warn::before, .gauge-fill.state-critical::before {
+      content: none;
+      display: none;
+    }
+
+    /* Over-allowance: the fill is pinned at 100% because a bar cannot show
+       669%, so hatch it to make "past the end of the scale" legible on its
+       own rather than looking like an exactly-full bar. */
+    .gauge.is-over .gauge-fill {
+      background-image: repeating-linear-gradient(
+        135deg,
+        var(--overlay-08) 0 6px,
+        transparent 6px 12px
+      );
+    }
 
     /* ---- Copy-to-clipboard buttons + code/setup blocks (OTel panel) ---- */
     .copy-button {
@@ -579,8 +639,14 @@
     th button { all: unset; cursor: pointer; color: inherit; }
     td.num { text-align: right; font-variant-numeric: tabular-nums; }
     .compact-prices-wrap { overflow-x: auto; }
-    .compact-prices-table { width: auto; min-width: 540px; font-size: 0.84rem; }
+    /* Full width, not `auto`: at `auto` the four narrow columns hugged the
+       left third of the panel and left a large empty band to their right. */
+    .compact-prices-table { width: 100%; min-width: 540px; font-size: 0.84rem; }
     .compact-prices-table th, .compact-prices-table td { padding: 6px 8px; text-align: left; white-space: nowrap; }
+    .compact-prices-table th:not(:first-child), .compact-prices-table td:not(:first-child) {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
     .compact-prices-table td strong { font-weight: 650; }
     .tool-catalog-controls { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:center; }
     .tool-catalog-controls input, .tool-catalog-controls select {
@@ -596,13 +662,37 @@
     .pill-list { display: flex; gap: 6px; flex-wrap: wrap; }
     .pill { background: var(--overlay-06); border: 1px solid var(--overlay-08); border-radius: 999px; padding: 3px 8px; font-size: 0.75rem; color: var(--muted); }
     .note { color: var(--muted); font-size: 0.88rem; }
-    .insights-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+
+    /* Collapsed methodology/caveat prose. Reads as a quiet inline toggle
+       rather than a panel, so it never competes with the data it annotates. */
+    .method-note { margin-top: 10px; }
+    .method-note > summary {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      list-style: none;
+      user-select: none;
+    }
+    .method-note > summary::-webkit-details-marker { display: none; }
+    .method-note > summary::before { content: "▸"; color: var(--faint); font-size: 0.75rem; }
+    .method-note[open] > summary::before { content: "▾"; }
+    .method-note > summary:hover { color: var(--text); }
+    /* 300px floor, not 240: at 240 six findings packed into one row and every
+       title had to be ellipsised to fit. */
+    .insights-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
     details.collapsible-section > summary { list-style: none; }
     details.collapsible-section > summary::-webkit-details-marker { display: none; }
     details.collapsible-section { border-radius: 18px; }
-    .insight-card h4 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
     .insight-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
-    .insight-card h4 { margin: 0 0 10px 0; }
+    /* Titles wrap rather than truncate. Ellipsising them hid the actual
+       finding ("Standardizing on claud…"), which is the one line of a
+       recommendation card a reader cannot do without. */
+    .insight-card h4 {
+      margin: 0 0 10px 0;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+    }
 
     /* ---- Segmented control (source/period filter groups) ----
        Reuses the .subtab-button pill look since that's the closest

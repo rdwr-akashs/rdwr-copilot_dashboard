@@ -317,7 +317,7 @@ import { renderStatCell, renderTable } from './tables.js';
             ], [...cliTools].sort((a, b) => Number(b.calls || 0) - Number(a.calls || 0)).slice(0, 10))}</div>
           </div>
           <div class="note small" style="margin-top:8px">OTel <code>execute_tool</code> spans carry duration only — no token or cost attribution — so these tables cannot show a "cost per tool call" figure the way model calls can.</div>`
-        : `<div class="is-empty">Tool duration/call-count breakdown needs the CLI's OpenTelemetry file export — see the OTel status panel above for setup steps.</div>`;
+        : `<div class="is-empty">Tool duration/call-count breakdown needs the CLI's OpenTelemetry file export — see the OpenTelemetry status panel at the bottom of this tab for setup steps.</div>`;
 
       return `
         <section class="panel">
@@ -488,20 +488,31 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
       const hiddenCliCount = HIDDEN_CLI_SESSION_IDS.size;
       const totalPremiumRequests = byModelRows.reduce((sum, row) => sum + Number(row.premiumRequests || 0), 0);
 
+      // Cards + caveat live inside the tab's header panel. As a bare
+      // `.summary-grid` they sat on the page background outside any panel,
+      // so the row and its footnote ran edge-to-edge and broke the column
+      // alignment every other section on the page follows.
       const summaryCards = `
-        <div class="summary-grid">
-          <div class="summary-card"><div class="label">CLI sessions</div><div class="value">${formatInteger(summary.sessionCount)}</div></div>
-          <div class="summary-card"><div class="label">Model calls</div><div class="value">${formatInteger(summary.callCount)}</div></div>
-          <div class="summary-card"><div class="label">Total input</div><div class="value input">${formatInteger(summary.totalInput)}</div></div>
-          <div class="summary-card"><div class="label">Cached-read input</div><div class="value cached">${formatInteger(summary.totalCached)}</div></div>
-          <div class="summary-card"><div class="label">Total output</div><div class="value output">${formatInteger(summary.totalOutput)}</div></div>
-          <div class="summary-card"><div class="label">Estimated cost</div><div class="value cost">${formatCost(summary.totalCost)}</div></div>
-          <div class="summary-card"><div class="label">Files touched</div><div class="value">${formatInteger(summary.fileCount)}</div></div>
-          <div class="summary-card"><div class="label">Premium requests (legacy est.)</div><div class="value">${formatInteger(totalPremiumRequests)}</div></div>
-          ${cli.otelAvailable ? `<div class="summary-card"><div class="label">Tool calls (OTel)</div><div class="value">${formatInteger(summary.toolCallCount)}</div></div>` : ''}
-        </div>
-        <div class="note small" style="margin-top:-6px;margin-bottom:12px">Premium requests are the legacy meter (annual request-billed Pro/Pro+ only); credit-billed plans are metered on cost — see the AI credit budget on Overview. Counts are local estimates: one per user prompt (apportioned from <code>turnCount</code>, not per model call) times the model multiplier from <code>APP_DATA.premium.multipliers</code>, not official GitHub billing — check github.com/settings/billing for the authoritative figures.${filterLabel(filterState)}</div>
-        ${filterState.active && filterState.sourceOk === false ? '<div class="state-warn" style="padding:8px 12px;border-radius:8px;background:var(--panel-2)">CLI data is currently hidden by the global source filter. Switch the source filter to "All" or "CLI" to see it here.</div>' : ''}`;
+        <section class="panel">
+          <h2 class="section-title">GitHub Copilot CLI usage</h2>
+          <div class="section-subtitle">Read directly from <code>${escapeHtml(cli.dbPath || '')}</code> on this machine — local CLI usage only, kept separate from VS Code chat sessions.${filterLabel(filterState)}</div>
+          <div class="summary-grid">
+            <div class="summary-card"><div class="label">CLI sessions</div><div class="value">${formatInteger(summary.sessionCount)}</div></div>
+            <div class="summary-card"><div class="label">Model calls</div><div class="value">${formatInteger(summary.callCount)}</div></div>
+            <div class="summary-card"><div class="label">Input tokens</div><div class="value input">${formatInteger(summary.totalInput)}</div></div>
+            <div class="summary-card"><div class="label">Cached-read input</div><div class="value cached">${formatInteger(summary.totalCached)}</div></div>
+            <div class="summary-card"><div class="label">Output tokens</div><div class="value output">${formatInteger(summary.totalOutput)}</div></div>
+            <div class="summary-card"><div class="label">Estimated cost</div><div class="value cost">${formatCost(summary.totalCost)}</div></div>
+            <div class="summary-card"><div class="label">Files touched</div><div class="value">${formatInteger(summary.fileCount)}</div></div>
+            <div class="summary-card" title="Legacy per-prompt meter. Credit-billed plans are metered on cost instead — see the AI credit budget on Overview."><div class="label">Premium requests</div><div class="value">${formatInteger(totalPremiumRequests)}</div><div class="note small">legacy est.</div></div>
+            ${cli.otelAvailable ? `<div class="summary-card"><div class="label">Tool calls</div><div class="value">${formatInteger(summary.toolCallCount)}</div><div class="note small">from OTel</div></div>` : ''}
+          </div>
+          <details class="method-note">
+            <summary class="note small">How premium requests are estimated here</summary>
+            <div class="note small" style="margin-top:8px">Premium requests are the legacy meter (annual request-billed Pro/Pro+ only); credit-billed plans are metered on cost — see the AI credit budget on Overview. Counts are local estimates: one per user prompt (apportioned from <code>turnCount</code>, not per model call) times the model multiplier from <code>APP_DATA.premium.multipliers</code>, not official GitHub billing — check github.com/settings/billing for the authoritative figures.</div>
+          </details>
+          ${filterState.active && filterState.sourceOk === false ? '<div class="state-warn" style="padding:8px 12px;border-radius:8px;background:var(--panel-2);margin-top:12px">CLI data is currently hidden by the global source filter. Switch the source filter to "All" or "CLI" to see it here.</div>' : ''}
+        </section>`;
 
       const byModelTable = renderTable([
         { title: 'Model', render: (row) => `<div><strong>${escapeHtml(row.model)}</strong><div class="note small">${formatInteger(row.calls)} calls across ${formatInteger(row.sessionCount)} sessions</div></div>` },
@@ -548,21 +559,12 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
       const pageSlice = filtered.slice((cliPage - 1) * cliPageSize, cliPage * cliPageSize);
       const sessionCardsHtml = pageSlice.map((session) => renderCliSession(session)).join('');
 
-      return `
-        <section class="panel">
-          <h2 class="section-title">GitHub Copilot CLI usage</h2>
-          <div class="section-subtitle">Read directly from <code>${escapeHtml(cli.dbPath || '')}</code> on this machine (local usage only, not merged with VS Code chat sessions above).</div>
-        </section>
-        ${summaryCards}
-        ${renderCliOtelPanel(cli)}
-        ${renderCliTrendSection(sessions)}
-        <section class="panel">
-          <h2 class="section-title">By model</h2>
-          <div class="table-scroll">${byModelTable}</div>
-        </section>
-        ${toolImpactSection}
-        ${renderCliEfficiencySection(sessions, cli)}
-        ${renderCliRepoRollupSection(sessions)}
+      // Section order mirrors the Chats tab: the session list is the thing
+      // people come here to read, so it sits directly under the summary cards
+      // rather than below every rollup/diagnostic panel (which used to push it
+      // ~1500px down the page). Aggregate analyses and the OTel diagnostics
+      // follow it, in cheapest-to-scan-first order.
+      const sessionListSection = `
         <section class="panel">
           <div class="filter-bar">
             <input type="text" id="cliSearchInput" placeholder="Search by repository, cwd, branch, session ID, or model…" value="${escapeHtml(STATE.cliSearch || '')}" oninput="setCliSearch(this.value)">
@@ -575,7 +577,6 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
               ${hiddenCliCount ? `<button type="button" class="action-chip action-chip--blue" onclick="restoreHiddenCliSessions()">↩ Restore hidden (${formatInteger(hiddenCliCount)})</button>` : ''}
             </div>
           </div>
-          <div class="note small" style="margin-top:8px">Delete actions hide CLI sessions in this browser view (persisted locally) and can be reverted with <em>Restore hidden</em>. They do not modify <code>session-store.db</code>.</div>
           <div class="pagination" style="margin-top:8px">
             <div class="note">Showing ${filtered.length ? `${(cliPage - 1) * cliPageSize + 1}-${Math.min(cliPage * cliPageSize, filtered.length)}` : '0'} of ${formatInteger(filtered.length)} CLI sessions</div>
             <div class="pagination-controls">
@@ -588,8 +589,24 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
               <button type="button" onclick="changeCliPage(1)" ${cliPage >= cliPageCount ? 'disabled' : ''}>Next</button>
             </div>
           </div>
+          <details class="method-note">
+            <summary class="note small">About deleting sessions</summary>
+            <div class="note small" style="margin-top:8px">Delete actions hide CLI sessions in this browser view (persisted locally) and can be reverted with <em>Restore hidden</em>. They do not modify <code>session-store.db</code>.</div>
+          </details>
         </section>
-        <section class="session-list">${sessionCardsHtml || '<div class="panel"><div class="is-empty">No CLI sessions match the current filter.</div></div>'}</section>
+        <section class="session-list">${sessionCardsHtml || '<div class="panel"><div class="is-empty">No CLI sessions match the current filter.</div></div>'}</section>`;
+
+      return `
+        ${summaryCards}
+        ${sessionListSection}
+        <section class="panel">
+          <h2 class="section-title">By model</h2>
+          <div class="table-scroll">${byModelTable}</div>
+        </section>
+        ${renderCliTrendSection(sessions)}
+        ${toolImpactSection}
+        ${renderCliEfficiencySection(sessions, cli)}
+        ${renderCliRepoRollupSection(sessions)}
         <section class="panel">
           <h2 class="section-title">File activity (aggregate, all sessions)</h2>
           <div class="note small">Files created or edited across all CLI sessions combined (from local file-write history). Expand a session card above and see "Files touched in this session" for a per-session breakdown of the same data. ${cli.otelAvailable ? 'Per-tool token/cost breakdown is not shown here since OTel execute_tool spans don\'t carry token/cost data; see the Tool impact section above for real per-tool call counts and durations.' : 'Enable the CLI\'s built-in OpenTelemetry export (set <code>COPILOT_OTEL_FILE_EXPORTER_PATH</code> before running <code>copilot</code>, then pass the file via <code>--cli-otel-log</code>) to also unlock a Tool impact view above.'}</div>
@@ -598,7 +615,8 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
           </div>
           <h2 class="section-title" style="margin-top:12px">Files (${formatInteger(files.length)}${files.length > 200 ? ', showing top 200' : ''})</h2>
           <div class="table-scroll">${filesTable}</div>
-        </section>`;
+        </section>
+        ${renderCliOtelPanel(cli)}`;
     }
 
     export function renderCliSession(session) {

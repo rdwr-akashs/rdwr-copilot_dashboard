@@ -1,6 +1,6 @@
 import { exportToJson, switchTab, switchTokenMode, switchUsagePeriod } from './actions.js';
 import { activePeriodLabel, activeSummary, pagedSessions, unifiedFilteredTotals } from './aggregate.js';
-import { cacheHitRateForBlock, creditsFromCost, escapeHtml, formatCost, formatInteger, formatPercent, pickTokenBlock, summaryDisplayTotals } from './format.js';
+import { cacheHitRateForBlock, escapeHtml, formatCost, formatCreditValue, formatInteger, formatPercent, pickTokenBlock, summaryDisplayTotals } from './format.js';
 import { applyCustomDateInputs, currentFilters, decodeHashIntoState, encodeHashFromState, setFilter } from './filters.js';
 import { APP_DATA, STATE, applyTheme, captureInputFocusState, isBilledMode, normalizeTokenMode, restoreInputFocusState, tokenModeLabel } from './state.js';
 import { renderAnalysisTab } from './tab-analysis.js';
@@ -13,13 +13,6 @@ import { closeChatDeleteModal, closeFileModal, closeFullChatModal, closeGenAiMod
 import { restoreHiddenChats, restoreHiddenCliSessions } from './state.js';
 import { changeCliPage, deleteCliSessionPrompt, exportCliSessionToJson, openCliFullChatModal, openCliModelCompareModal, setCliFileSearch, setCliModelFilter, setCliPageSize, setCliSearch } from './tab-cli.js';
 
-
-    // Maps a premium.budget.status ('ok'|'warn'|'critical') to the CSS
-    // state class contract published in components.css. Never hand-tune
-    // colours in JS -- only ever flip this class.
-    function stateClass(status) {
-      return `state-${status === 'critical' ? 'critical' : status === 'warn' ? 'warn' : 'ok'}`;
-    }
 
     export function toggleTheme() {
       applyTheme(STATE.theme === 'light' ? 'dark' : 'light');
@@ -37,15 +30,22 @@ import { changeCliPage, deleteCliSessionPrompt, exportCliSessionToJson, openCliF
       const creditsLabel = isBilledMode() ? 'Billed AI credits' : 'Attributed AI credits';
       const budget = APP_DATA.premium?.budget || {};
       const hasAllowance = budget.allowance !== null && budget.allowance !== undefined;
-      // The gauge bar can only be filled 0-100%, but the *label* must report
-      // the true figure -- clamping it too made a 657% overrun read as an
-      // exactly-exhausted 100%, contradicting the budget alerts.
+      // Reported unclamped: an earlier version capped this at 100%, so a
+      // 657% overrun read as an exactly-exhausted allowance and contradicted
+      // the budget alerts right below it.
       const rawPct = hasAllowance ? Number(budget.percentUsed || 0) : 0;
-      const pct = Math.max(0, Math.min(100, rawPct));
-      const quotaLabel = hasAllowance ? `${formatPercent(rawPct)} of ${formatInteger(budget.allowance)} credits` : 'no allowance set';
-      const quotaGauge = hasAllowance
-        ? `<div class="gauge ${stateClass(budget.status)}" style="margin-top:6px"><div class="gauge-fill ${stateClass(budget.status)}" style="width:${pct}%"></div></div>`
-        : '';
+      // Percentage as the headline, the denominator as a caption underneath:
+      // as one string ("669.4% of 1,500 credits") it wrapped mid-phrase at
+      // card width and read as a sentence set in the number style.
+      const quotaValue = hasAllowance ? formatPercent(rawPct) : '—';
+      const quotaNote = hasAllowance
+        ? `of ${formatInteger(budget.allowance)} credits${rawPct > 100 ? ' · over allowance' : ''}`
+        : 'no allowance set';
+      // Status is carried by the value's colour plus the wording, not by a
+      // second gauge: a 12px bar squeezed into a KPI card forced the whole
+      // card row taller than its neighbours and duplicated the full-size
+      // gauge that Overview's budget panel already renders.
+      const quotaValueClass = hasAllowance ? ` is-${budget.status === 'critical' ? 'critical' : budget.status === 'warn' ? 'warn' : 'ok'}` : '';
       return `
         <div class="summary-groups">
           <div class="summary-group">
@@ -54,9 +54,9 @@ import { changeCliPage, deleteCliSessionPrompt, exportCliSessionToJson, openCliF
               <div class="summary-card"><div class="label">Sessions</div><div class="value">${formatInteger(totals.sessionCount)}</div></div>
               <div class="summary-card" title="Model API calls. An agentic CLI session makes many calls per prompt, so this is much larger than the prompt count."><div class="label">Model calls</div><div class="value">${formatInteger(totals.modelCalls ?? totals.callCount)}</div></div>
               <div class="summary-card" title="User prompts submitted. This is what legacy premium-request billing counts, not model calls."><div class="label">Prompts</div><div class="value">${formatInteger(totals.promptCount ?? totals.callCount)}</div></div>
-              <div class="summary-card"><div class="label">Total input tokens</div><div class="value input">${formatInteger(block.input)}</div></div>
-              <div class="summary-card"><div class="label">Uncached input tokens</div><div class="value uncached">${formatInteger(block.uncached)}</div></div>
-              <div class="summary-card"><div class="label">Cached-read input tokens</div><div class="value cached">${formatInteger(block.cached)}</div></div>
+              <div class="summary-card" title="Total input tokens, including cached-read tokens."><div class="label">Input tokens</div><div class="value input">${formatInteger(block.input)}</div></div>
+              <div class="summary-card" title="Input tokens billed at the full uncached rate."><div class="label">Uncached input</div><div class="value uncached">${formatInteger(block.uncached)}</div></div>
+              <div class="summary-card" title="Input tokens served from the prompt cache, billed at the discounted cached rate."><div class="label">Cached-read input</div><div class="value cached">${formatInteger(block.cached)}</div></div>
               <div class="summary-card"><div class="label">Output tokens</div><div class="value output">${formatInteger(block.output)}</div></div>
             </div>
           </div>
@@ -64,8 +64,8 @@ import { changeCliPage, deleteCliSessionPrompt, exportCliSessionToJson, openCliF
             <div class="summary-group-label">Cost &amp; AI credits</div>
             <div class="summary-grid">
               <div class="summary-card"><div class="label">${escapeHtml(costLabel)}</div><div class="value cost">${formatCost(block.cost)}</div></div>
-              <div class="summary-card" title="1 AI credit = $0.01 of model usage — the unit GitHub meters paid plans in."><div class="label">${escapeHtml(creditsLabel)}</div><div class="value credits">${creditsFromCost(block.cost).toFixed(1)}</div></div>
-              <div class="summary-card"><div class="label">Credit allowance used</div><div class="value">${escapeHtml(quotaLabel)}</div>${quotaGauge}</div>
+              <div class="summary-card" title="1 AI credit = $0.01 of model usage — the unit GitHub meters paid plans in."><div class="label">${escapeHtml(creditsLabel)}</div><div class="value credits">${formatCreditValue(block.cost)}</div></div>
+              <div class="summary-card"><div class="label">Credit allowance used</div><div class="value${quotaValueClass}">${escapeHtml(quotaValue)}</div><div class="note small">${escapeHtml(quotaNote)}</div></div>
               <div class="summary-card" title="Legacy premium-request estimate (one per user prompt x model multiplier). Applies only to annual Pro/Pro+ plans still billed in requests."><div class="label">Premium requests (legacy)</div><div class="value">${formatInteger(totals.premiumRequests)}</div></div>
             </div>
           </div>
@@ -122,8 +122,8 @@ import { changeCliPage, deleteCliSessionPrompt, exportCliSessionToJson, openCliF
           <div class="header-top">
             <div>
               <h1>📊 Copilot Usage Explorer ${anonymizedBadge}</h1>
-              <div class="subtitle">Unified view across VS Code Copilot Chat and the GitHub Copilot CLI: <strong>prompt snapshots</strong> vs. <strong>billed per-call usage</strong>, AI-credit budget tracking, and cost/quota recommendations.</div>
-              <div class="subtitle small">Generated: ${escapeHtml(APP_DATA.generatedAt)} · Legacy chat period: <strong>${escapeHtml(periodLabel)}</strong> · Token mode: <strong>${escapeHtml(modeLabel)}</strong> · Chat cached share: ${formatPercent(cacheHitRateForBlock(legacyTotals))}</div>
+              <div class="subtitle">Token, cost and AI-credit usage across VS Code Copilot Chat and the GitHub Copilot CLI, with cost-reduction recommendations.</div>
+              <div class="subtitle small">Generated ${escapeHtml(APP_DATA.generatedAt)} · Tokens <strong>${escapeHtml(modeLabel)}</strong> · Chat cache hit <strong>${formatPercent(cacheHitRateForBlock(legacyTotals))}</strong> · <span title="A few chat-only panels (model usage, tool impact, telemetry) are precomputed per month server-side and stay scoped to this period rather than the global period filter above.">chat-only panels scoped to <strong>${escapeHtml(periodLabel)}</strong></span></div>
             </div>
             <div style="display:flex;gap:12px;flex-direction:column;align-items:flex-end;min-width:200px">
               <div style="display:flex;gap:8px">
@@ -132,7 +132,11 @@ import { changeCliPage, deleteCliSessionPrompt, exportCliSessionToJson, openCliF
               </div>
             </div>          </div>
           ${renderFilterBar()}
-          ${renderSummaryCards()}
+          <!-- Tabs sit above the summary cards, not below them: with eleven
+               cards in between, the primary navigation started ~570px down
+               the page and was pushed off the fold on smaller screens. The
+               cards read as context for whichever tab is open, which is
+               exactly where they now sit. -->
           <div class="tabs">
             <button class="tab-button ${STATE.activeTab === 'overview' ? 'active' : ''}" onclick="switchTab('overview')">Overview</button>
             ${filters.source !== 'cli' ? `<button class="tab-button ${STATE.activeTab === 'chats' ? 'active' : ''}" onclick="switchTab('chats')">Chats</button>` : ''}
@@ -140,6 +144,7 @@ import { changeCliPage, deleteCliSessionPrompt, exportCliSessionToJson, openCliF
             ${filters.source !== 'chat' ? `<button class="tab-button ${STATE.activeTab === 'cli' ? 'active' : ''}" onclick="switchTab('cli')">CLI</button>` : ''}
             <button class="tab-button ${STATE.activeTab === 'reference' ? 'active' : ''}" onclick="switchTab('reference')">Info</button>
           </div>
+          ${renderSummaryCards()}
         </section>`;
     }
 

@@ -133,11 +133,15 @@
     .state-ok { border-left-color: var(--state-ok); }
     .state-warn { border-left-color: var(--state-warn); }
     .state-critical { border-left-color: var(--state-critical); }
+    /* Floated, not merely inline-block: these classes land on block
+       containers (alert/insight cards) whose first child is itself a block,
+       so an inline glyph got a line box of its own and the icon sat on an
+       empty row above the title instead of beside it. */
     .state-ok::before, .state-warn::before, .state-critical::before {
-      display: inline-block;
+      float: left;
       width: 1em;
       font-weight: 800;
-      margin-right: 4px;
+      margin-right: 8px;
       text-align: center;
     }
     .state-ok::before { content: "\2713"; color: var(--state-ok); }
@@ -178,6 +182,37 @@
     .gauge.state-warn .gauge-fill, .gauge-fill.state-warn { background: var(--state-warn); }
     .gauge.state-critical .gauge-fill, .gauge-fill.state-critical { background: var(--state-critical); }
     .gauge-label { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--muted); margin-top: 6px; }
+
+    /* The gauge takes a `.state-*` class purely to pick a colour, but those
+       utilities also inject an icon glyph via ::before and a 4px left
+       border. Inside a 12px-tall, overflow:hidden track that glyph creates
+       a line box which pushes the fill out of view entirely -- the bar
+       rendered empty with a stray ✕ at its left edge. Opt the gauge and its
+       fill out of both decorations; the surrounding caption still states
+       the status in words. */
+    .gauge.state-ok, .gauge.state-warn, .gauge.state-critical {
+      border-left-width: 1px;
+      border-left-color: var(--border);
+    }
+    .gauge-fill.state-ok, .gauge-fill.state-warn, .gauge-fill.state-critical {
+      border-left-width: 0;
+    }
+    .gauge.state-ok::before, .gauge.state-warn::before, .gauge.state-critical::before,
+    .gauge-fill.state-ok::before, .gauge-fill.state-warn::before, .gauge-fill.state-critical::before {
+      content: none;
+      display: none;
+    }
+
+    /* Over-allowance: the fill is pinned at 100% because a bar cannot show
+       669%, so hatch it to make "past the end of the scale" legible on its
+       own rather than looking like an exactly-full bar. */
+    .gauge.is-over .gauge-fill {
+      background-image: repeating-linear-gradient(
+        135deg,
+        var(--overlay-08) 0 6px,
+        transparent 6px 12px
+      );
+    }
 
     /* ---- Copy-to-clipboard buttons + code/setup blocks (OTel panel) ---- */
     .copy-button {

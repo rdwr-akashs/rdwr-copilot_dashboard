@@ -360,11 +360,20 @@
     return Math.round(n).toString();
   }
   function formatCost(value) {
-    return `$${Number(value || 0).toFixed(4)}`;
+    const n = Number(value || 0);
+    if (Math.abs(n) >= 1) {
+      return `$${n.toLocaleString(void 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    return `$${n.toFixed(4)}`;
   }
   var CREDIT_USD = 0.01;
   function creditsFromCost(cost) {
     return Number(cost || 0) / CREDIT_USD;
+  }
+  function formatCreditValue(cost) {
+    const credits = creditsFromCost(cost);
+    if (Math.abs(credits) >= 1e3) return Math.round(credits).toLocaleString();
+    return credits.toFixed(1);
   }
   function formatDuration(ms) {
     const value = Number(ms || 0);
@@ -1322,9 +1331,15 @@ ${body}` : header;
               ${hiddenCount ? `<button type="button" class="action-chip action-chip--blue" onclick="restoreHiddenChats()">\u21A9 Restore hidden (${formatInteger(hiddenCount)})</button>` : ""}
             </div>
           </div>
-          <div class="legend">${isBilledMode() ? "Each session total uses <strong>billed per-call totals</strong> directly from API usage fields." : "Each session total uses <strong>prompt-growth attribution</strong>: the first call in each segment is counted at full billed cost (fresh context); subsequent calls within a segment contribute only the net-new prompt delta + output. This avoids double-counting the growing conversation history across turns."} Model switches and context resets start new segments. <code>input</code> includes cached-read tokens; uncached input is shown separately.</div>
-          <div class="note small" style="margin-top:8px">Delete actions hide chats in this browser view (persisted locally) and can be reverted with <em>Restore hidden</em>. They do not erase raw debug logs.</div>
           ${renderPagination(pages.all.length, pages.pageCount)}
+          <!-- Methodology behind a disclosure: it is a paragraph you read
+               once, and inline it pushed the first session card a full screen
+               down every visit. Collapsed keeps it one click away. -->
+          <details class="method-note">
+            <summary class="note small">How these totals are computed</summary>
+            <div class="legend" style="margin-top:8px">${isBilledMode() ? "Each session total uses <strong>billed per-call totals</strong> directly from API usage fields." : "Each session total uses <strong>prompt-growth attribution</strong>: the first call in each segment is counted at full billed cost (fresh context); subsequent calls within a segment contribute only the net-new prompt delta + output. This avoids double-counting the growing conversation history across turns."} Model switches and context resets start new segments. <code>input</code> includes cached-read tokens; uncached input is shown separately.</div>
+            <div class="note small" style="margin-top:8px">Delete actions hide chats in this browser view (persisted locally) and can be reverted with <em>Restore hidden</em>. They do not erase raw debug logs.</div>
+          </details>
         </section>
         <section class="session-list">${sessionsHtml || '<div class="panel"><div class="note">No sessions match the current filter.</div></div>'}</section>`;
   }
@@ -2674,7 +2689,7 @@ CLI ${metric.label}: ${metric.format(point.cli)}`;
           ${hasSavings ? `
           <div class="pill-list" style="margin-top:10px;">
             ${Number(savings.cost || 0) > 0 ? `<span class="pill">Est. saving ${escapeHtml(formatCost(savings.cost))}</span>` : ""}
-            ${Number(savings.cost || 0) > 0 ? `<span class="pill">${escapeHtml(creditsFromCost(savings.cost).toFixed(0))} AI credits</span>` : ""}
+            ${Number(savings.cost || 0) > 0 ? `<span class="pill">${escapeHtml(formatCreditValue(savings.cost))} AI credits</span>` : ""}
             ${Number(savings.premiumRequests || 0) > 0 ? `<span class="pill" title="Legacy meter: annual request-billed Pro/Pro+ only.">${escapeHtml(formatInteger(savings.premiumRequests))} premium req. (legacy)</span>` : ""}
           </div>` : `<div class="note small" style="margin-top:10px">Informational \u2014 no quantifiable saving.</div>`}
           <details style="margin-top:10px" id="insight-evidence-${index}">
@@ -2725,7 +2740,7 @@ CLI ${metric.label}: ${metric.format(point.cli)}`;
             </div>
             <div style="text-align:right">
               <div class="label" style="color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.04em">Estimated savings available</div>
-              <div style="font-size:1.3rem;font-weight:700" class="value cost">${escapeHtml(formatCost(totalCost))}${totalPremium ? ` <span class="note small" style="font-weight:400">= ${escapeHtml(creditsFromCost(totalCost).toFixed(0))} AI credits</span>` : ""}</div>
+              <div style="font-size:1.3rem;font-weight:700" class="value cost">${escapeHtml(formatCost(totalCost))}${totalPremium ? ` <span class="note small" style="font-weight:400">= ${escapeHtml(formatCreditValue(totalCost))} AI credits</span>` : ""}</div>
             </div>
           </div>
           <div class="filter-bar" style="margin-top:14px;margin-bottom:0;align-items:center">
@@ -3184,7 +3199,7 @@ _Estimates are local approximations derived from parsed usage data, not official
       { title: "Total duration", numeric: true, render: (row) => formatDuration(row.totalDurationMs) }
     ], [...cliTools].sort((a, b) => Number(b.calls || 0) - Number(a.calls || 0)).slice(0, 10))}</div>
           </div>
-          <div class="note small" style="margin-top:8px">OTel <code>execute_tool</code> spans carry duration only \u2014 no token or cost attribution \u2014 so these tables cannot show a "cost per tool call" figure the way model calls can.</div>` : `<div class="is-empty">Tool duration/call-count breakdown needs the CLI's OpenTelemetry file export \u2014 see the OTel status panel above for setup steps.</div>`;
+          <div class="note small" style="margin-top:8px">OTel <code>execute_tool</code> spans carry duration only \u2014 no token or cost attribution \u2014 so these tables cannot show a "cost per tool call" figure the way model calls can.</div>` : `<div class="is-empty">Tool duration/call-count breakdown needs the CLI's OpenTelemetry file export \u2014 see the OpenTelemetry status panel at the bottom of this tab for setup steps.</div>`;
     return `
         <section class="panel">
           <h2 class="section-title">Efficiency &amp; cost outliers</h2>
@@ -3331,19 +3346,26 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
     const hiddenCliCount = HIDDEN_CLI_SESSION_IDS.size;
     const totalPremiumRequests = byModelRows.reduce((sum, row) => sum + Number(row.premiumRequests || 0), 0);
     const summaryCards = `
-        <div class="summary-grid">
-          <div class="summary-card"><div class="label">CLI sessions</div><div class="value">${formatInteger(summary.sessionCount)}</div></div>
-          <div class="summary-card"><div class="label">Model calls</div><div class="value">${formatInteger(summary.callCount)}</div></div>
-          <div class="summary-card"><div class="label">Total input</div><div class="value input">${formatInteger(summary.totalInput)}</div></div>
-          <div class="summary-card"><div class="label">Cached-read input</div><div class="value cached">${formatInteger(summary.totalCached)}</div></div>
-          <div class="summary-card"><div class="label">Total output</div><div class="value output">${formatInteger(summary.totalOutput)}</div></div>
-          <div class="summary-card"><div class="label">Estimated cost</div><div class="value cost">${formatCost(summary.totalCost)}</div></div>
-          <div class="summary-card"><div class="label">Files touched</div><div class="value">${formatInteger(summary.fileCount)}</div></div>
-          <div class="summary-card"><div class="label">Premium requests (legacy est.)</div><div class="value">${formatInteger(totalPremiumRequests)}</div></div>
-          ${cli.otelAvailable ? `<div class="summary-card"><div class="label">Tool calls (OTel)</div><div class="value">${formatInteger(summary.toolCallCount)}</div></div>` : ""}
-        </div>
-        <div class="note small" style="margin-top:-6px;margin-bottom:12px">Premium requests are the legacy meter (annual request-billed Pro/Pro+ only); credit-billed plans are metered on cost \u2014 see the AI credit budget on Overview. Counts are local estimates: one per user prompt (apportioned from <code>turnCount</code>, not per model call) times the model multiplier from <code>APP_DATA.premium.multipliers</code>, not official GitHub billing \u2014 check github.com/settings/billing for the authoritative figures.${filterLabel(filterState)}</div>
-        ${filterState.active && filterState.sourceOk === false ? '<div class="state-warn" style="padding:8px 12px;border-radius:8px;background:var(--panel-2)">CLI data is currently hidden by the global source filter. Switch the source filter to "All" or "CLI" to see it here.</div>' : ""}`;
+        <section class="panel">
+          <h2 class="section-title">GitHub Copilot CLI usage</h2>
+          <div class="section-subtitle">Read directly from <code>${escapeHtml(cli.dbPath || "")}</code> on this machine \u2014 local CLI usage only, kept separate from VS Code chat sessions.${filterLabel(filterState)}</div>
+          <div class="summary-grid">
+            <div class="summary-card"><div class="label">CLI sessions</div><div class="value">${formatInteger(summary.sessionCount)}</div></div>
+            <div class="summary-card"><div class="label">Model calls</div><div class="value">${formatInteger(summary.callCount)}</div></div>
+            <div class="summary-card"><div class="label">Input tokens</div><div class="value input">${formatInteger(summary.totalInput)}</div></div>
+            <div class="summary-card"><div class="label">Cached-read input</div><div class="value cached">${formatInteger(summary.totalCached)}</div></div>
+            <div class="summary-card"><div class="label">Output tokens</div><div class="value output">${formatInteger(summary.totalOutput)}</div></div>
+            <div class="summary-card"><div class="label">Estimated cost</div><div class="value cost">${formatCost(summary.totalCost)}</div></div>
+            <div class="summary-card"><div class="label">Files touched</div><div class="value">${formatInteger(summary.fileCount)}</div></div>
+            <div class="summary-card" title="Legacy per-prompt meter. Credit-billed plans are metered on cost instead \u2014 see the AI credit budget on Overview."><div class="label">Premium requests</div><div class="value">${formatInteger(totalPremiumRequests)}</div><div class="note small">legacy est.</div></div>
+            ${cli.otelAvailable ? `<div class="summary-card"><div class="label">Tool calls</div><div class="value">${formatInteger(summary.toolCallCount)}</div><div class="note small">from OTel</div></div>` : ""}
+          </div>
+          <details class="method-note">
+            <summary class="note small">How premium requests are estimated here</summary>
+            <div class="note small" style="margin-top:8px">Premium requests are the legacy meter (annual request-billed Pro/Pro+ only); credit-billed plans are metered on cost \u2014 see the AI credit budget on Overview. Counts are local estimates: one per user prompt (apportioned from <code>turnCount</code>, not per model call) times the model multiplier from <code>APP_DATA.premium.multipliers</code>, not official GitHub billing \u2014 check github.com/settings/billing for the authoritative figures.</div>
+          </details>
+          ${filterState.active && filterState.sourceOk === false ? '<div class="state-warn" style="padding:8px 12px;border-radius:8px;background:var(--panel-2);margin-top:12px">CLI data is currently hidden by the global source filter. Switch the source filter to "All" or "CLI" to see it here.</div>' : ""}
+        </section>`;
     const byModelTable = renderTable([
       { title: "Model", render: (row) => `<div><strong>${escapeHtml(row.model)}</strong><div class="note small">${formatInteger(row.calls)} calls across ${formatInteger(row.sessionCount)} sessions</div></div>` },
       { title: "Input", numeric: true, render: (row) => `<span class="value input">${formatInteger(row.input)}</span>` },
@@ -3383,21 +3405,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
     const cliPage = Math.max(1, STATE.cliPage || 1);
     const pageSlice = filtered.slice((cliPage - 1) * cliPageSize, cliPage * cliPageSize);
     const sessionCardsHtml = pageSlice.map((session) => renderCliSession(session)).join("");
-    return `
-        <section class="panel">
-          <h2 class="section-title">GitHub Copilot CLI usage</h2>
-          <div class="section-subtitle">Read directly from <code>${escapeHtml(cli.dbPath || "")}</code> on this machine (local usage only, not merged with VS Code chat sessions above).</div>
-        </section>
-        ${summaryCards}
-        ${renderCliOtelPanel(cli)}
-        ${renderCliTrendSection(sessions)}
-        <section class="panel">
-          <h2 class="section-title">By model</h2>
-          <div class="table-scroll">${byModelTable}</div>
-        </section>
-        ${toolImpactSection}
-        ${renderCliEfficiencySection(sessions, cli)}
-        ${renderCliRepoRollupSection(sessions)}
+    const sessionListSection = `
         <section class="panel">
           <div class="filter-bar">
             <input type="text" id="cliSearchInput" placeholder="Search by repository, cwd, branch, session ID, or model\u2026" value="${escapeHtml(STATE.cliSearch || "")}" oninput="setCliSearch(this.value)">
@@ -3410,7 +3418,6 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
               ${hiddenCliCount ? `<button type="button" class="action-chip action-chip--blue" onclick="restoreHiddenCliSessions()">\u21A9 Restore hidden (${formatInteger(hiddenCliCount)})</button>` : ""}
             </div>
           </div>
-          <div class="note small" style="margin-top:8px">Delete actions hide CLI sessions in this browser view (persisted locally) and can be reverted with <em>Restore hidden</em>. They do not modify <code>session-store.db</code>.</div>
           <div class="pagination" style="margin-top:8px">
             <div class="note">Showing ${filtered.length ? `${(cliPage - 1) * cliPageSize + 1}-${Math.min(cliPage * cliPageSize, filtered.length)}` : "0"} of ${formatInteger(filtered.length)} CLI sessions</div>
             <div class="pagination-controls">
@@ -3423,8 +3430,23 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
               <button type="button" onclick="changeCliPage(1)" ${cliPage >= cliPageCount ? "disabled" : ""}>Next</button>
             </div>
           </div>
+          <details class="method-note">
+            <summary class="note small">About deleting sessions</summary>
+            <div class="note small" style="margin-top:8px">Delete actions hide CLI sessions in this browser view (persisted locally) and can be reverted with <em>Restore hidden</em>. They do not modify <code>session-store.db</code>.</div>
+          </details>
         </section>
-        <section class="session-list">${sessionCardsHtml || '<div class="panel"><div class="is-empty">No CLI sessions match the current filter.</div></div>'}</section>
+        <section class="session-list">${sessionCardsHtml || '<div class="panel"><div class="is-empty">No CLI sessions match the current filter.</div></div>'}</section>`;
+    return `
+        ${summaryCards}
+        ${sessionListSection}
+        <section class="panel">
+          <h2 class="section-title">By model</h2>
+          <div class="table-scroll">${byModelTable}</div>
+        </section>
+        ${renderCliTrendSection(sessions)}
+        ${toolImpactSection}
+        ${renderCliEfficiencySection(sessions, cli)}
+        ${renderCliRepoRollupSection(sessions)}
         <section class="panel">
           <h2 class="section-title">File activity (aggregate, all sessions)</h2>
           <div class="note small">Files created or edited across all CLI sessions combined (from local file-write history). Expand a session card above and see "Files touched in this session" for a per-session breakdown of the same data. ${cli.otelAvailable ? "Per-tool token/cost breakdown is not shown here since OTel execute_tool spans don't carry token/cost data; see the Tool impact section above for real per-tool call counts and durations." : "Enable the CLI's built-in OpenTelemetry export (set <code>COPILOT_OTEL_FILE_EXPORTER_PATH</code> before running <code>copilot</code>, then pass the file via <code>--cli-otel-log</code>) to also unlock a Tool impact view above."}</div>
@@ -3433,7 +3455,8 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
           </div>
           <h2 class="section-title" style="margin-top:12px">Files (${formatInteger(files.length)}${files.length > 200 ? ", showing top 200" : ""})</h2>
           <div class="table-scroll">${filesTable}</div>
-        </section>`;
+        </section>
+        ${renderCliOtelPanel(cli)}`;
   }
   function renderCliSession(session) {
     const modelBadges = (session.models || []).slice(0, 3).map((modelName) => `<span class="badge model">${escapeHtml(modelName)}</span>`).join("");
@@ -3696,26 +3719,31 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
               <div style="font-weight:700">${escapeHtml(alert2.title || "")}</div>
               <div class="note small">${escapeHtml(alert2.detail || "")}</div>
             </div>`).join("") : "";
+    const creditUsd = Number((_b = budget.creditUsd) != null ? _b : 0.01);
     return `
         <div class="panel">
-          <div class="section-title">AI credit budget (plan: ${escapeHtml(String(budget.plan || "unknown"))})</div>
-          <div class="note small">1 credit = ${formatCost((_b = budget.creditUsd) != null ? _b : 0.01)} of model usage. Credits used = this calendar month's billed cost x 100, across both sources.</div>
-          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:10px 0">
+          <div class="section-title">AI credit budget <span class="note small" style="font-weight:400">\xB7 plan ${escapeHtml(String(budget.plan || "unknown"))}</span></div>
+          <div class="section-subtitle small">1 credit = $${creditUsd.toFixed(2)} of model usage. Credits used = this calendar month's billed cost x 100, across both sources.</div>
+          <!-- flex-start, not center: the gauge column is ~40px tall and the
+               card grid beside it ~250px, so centring the gauge left a band of
+               dead space above and below it once the row got narrow enough for
+               the grid to wrap into several rows. -->
+          <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin:10px 0">
             <div style="flex:1;min-width:220px">
-              <div class="gauge ${gaugeState}"><div class="gauge-fill ${gaugeState}" style="width:${hasAllowance ? pct.toFixed(1) : 0}%"></div></div>
-              <div class="note small" style="margin-top:6px">${hasAllowance ? `${formatPercent(rawPct)} of the monthly credit allowance used` : "No credit allowance configured \u2014 usage tracked, not budget-compared"}</div>
+              <div class="gauge ${gaugeState}${rawPct > 100 ? " is-over" : ""}"><div class="gauge-fill ${gaugeState}" style="width:${hasAllowance ? pct.toFixed(1) : 0}%"></div></div>
+              <div class="note small" style="margin-top:8px">${hasAllowance ? `<strong>${formatPercent(rawPct)}</strong> of the monthly credit allowance used${rawPct > 100 ? " \u2014 allowance exceeded" : ""}` : "No credit allowance configured \u2014 usage tracked, not budget-compared"}</div>
             </div>
             <div class="summary-grid" style="flex:2;min-width:280px">
-              <div class="summary-card"><div class="label">Allowance (credits)</div><div class="value">${hasAllowance ? formatInteger(budget.allowance) : "\u2014"}</div></div>
+              <div class="summary-card"><div class="label">Allowance</div><div class="value">${hasAllowance ? formatInteger(budget.allowance) : "\u2014"}</div><div class="note small">credits / month</div></div>
               <div class="summary-card"><div class="label">Credits used</div><div class="value">${formatInteger(budget.used)}</div><div class="note small">${formatCost(budget.usedUsd || 0)}</div></div>
               <div class="summary-card"><div class="label">Remaining</div><div class="value">${budget.remaining !== null && budget.remaining !== void 0 ? formatInteger(budget.remaining) : "\u2014"}</div></div>
               <div class="summary-card"><div class="label">Burn rate / day</div><div class="value">${formatCompact(budget.burnRatePerDay || 0)}</div></div>
-              <div class="summary-card"><div class="label">Projected month-end</div><div class="value">${formatCompact(budget.projectedMonthEnd || 0)}</div></div>
+              <div class="summary-card"><div class="label">Projected total</div><div class="value">${formatCompact(budget.projectedMonthEnd || 0)}</div><div class="note small">by month end</div></div>
               <div class="summary-card"><div class="label">Projected %</div><div class="value">${hasAllowance ? formatPercent(budget.projectedPercent || 0) : "\u2014"}</div></div>
             </div>
           </div>
           ${alertsHtml ? `<div class="insights-grid">${alertsHtml}</div>` : ""}
-          <div class="note small" style="margin-top:8px">Legacy premium requests this month: <strong>${formatInteger(legacy.used || 0)}</strong>${legacy.allowance ? ` of ${formatInteger(legacy.allowance)}` : ""} \u2014 counted per user prompt x model multiplier, and applicable only to annual Pro/Pro+ subscriptions still billed in requests. Not used for the gauge above.</div>
+          <div class="note small" style="margin-top:12px">Legacy premium requests this month: <strong>${formatInteger(legacy.used || 0)}</strong>${legacy.allowance ? ` of ${formatInteger(legacy.allowance)}` : ""} \u2014 counted per user prompt x model multiplier, and applicable only to annual Pro/Pro+ subscriptions still billed in requests. Not used for the gauge above.</div>
         </div>`;
   }
   function renderSourceSplitPanel() {
@@ -3791,7 +3819,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
             <span class="badge">${escapeHtml(insight.severity || "info")}</span>
           </div>
           <div class="note small">${escapeHtml(insight.detail || "")}</div>
-          ${insight.estimatedSavings ? `<div class="note small">Est. savings: ${formatCost(insight.estimatedSavings.cost || 0)} \xB7 ${creditsFromCost(insight.estimatedSavings.cost || 0).toFixed(0)} AI credits</div>` : ""}
+          ${insight.estimatedSavings ? `<div class="note small">Est. savings: ${formatCost(insight.estimatedSavings.cost || 0)} \xB7 ${formatCreditValue(insight.estimatedSavings.cost || 0)} AI credits</div>` : ""}
         </div>`).join("");
     return `
         <div class="panel">
@@ -3805,30 +3833,11 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
     switchAnalysisTab("insights");
   }
   function renderOverviewTab() {
-    var _a, _b;
-    const totals = unifiedFilteredTotals();
-    const block = pickTokenBlock(totals.attributed, totals.billed);
     const unified = APP_DATA.unified || {};
     const dailyRows = unifiedFilteredDailyRows();
     const trendRows = dailyRows.length ? dailyRows : unified.monthly || [];
-    const filters = currentFilters();
-    const kpis = `
-        <div class="summary-grid">
-          <div class="summary-card"><div class="label">Sessions</div><div class="value">${formatInteger(totals.sessionCount)}</div></div>
-          <div class="summary-card" title="Model API calls \u2014 an agent loop makes many per prompt."><div class="label">Model calls</div><div class="value">${formatInteger((_a = totals.modelCalls) != null ? _a : totals.callCount)}</div></div>
-          <div class="summary-card" title="User prompts submitted \u2014 the unit legacy premium requests are charged in."><div class="label">Prompts</div><div class="value">${formatInteger((_b = totals.promptCount) != null ? _b : totals.callCount)}</div></div>
-          <div class="summary-card"><div class="label">Input tokens</div><div class="value input">${formatInteger(block.input)}</div></div>
-          <div class="summary-card"><div class="label">Cached tokens</div><div class="value cached">${formatInteger(block.cached)}</div></div>
-          <div class="summary-card"><div class="label">Output tokens</div><div class="value output">${formatInteger(block.output)}</div></div>
-          <div class="summary-card"><div class="label">${isBilledMode() ? "Billed cost" : "Attributed est. cost"}</div><div class="value cost">${formatCost(block.cost)}</div></div>
-          <div class="summary-card" title="1 AI credit = $0.01 of model usage."><div class="label">AI credits</div><div class="value credits">${creditsFromCost(block.cost).toFixed(1)}</div></div>
-        </div>`;
     const emptyNote = !dailyRows.length && !(unified.monthly || []).length ? '<div class="note is-empty">No usage data recorded yet for the selected filters.</div>' : "";
     return `
-        <div class="panel">
-          <div class="section-title">Overview \u2014 ${escapeHtml(filters.source === "all" ? "All sources" : filters.source)} \xB7 ${escapeHtml(filters.period)}</div>
-          ${kpis}
-        </div>
         ${renderBudgetPanel()}
         <div class="panel">
           <div class="section-title">Cost &amp; token trend (Chat vs CLI)</div>
@@ -3865,7 +3874,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
     return `
         <section class="panel">
           <h2 class="section-title">Model prices</h2>
-          <div class="section-subtitle">Info: API-style prices per 1M tokens used by cost estimation in this dashboard.</div>
+          <div class="section-subtitle">API-style prices per 1M tokens, as used by every cost estimate in this dashboard. Sorted cheapest first. Configurable in <code>model_pricing.py</code> \u2014 these are local estimates, not official GitHub billing rates.</div>
           <div class="compact-prices-wrap">
             <table class="compact-prices-table">
               <thead>
@@ -4056,9 +4065,6 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
   }
 
   // web/js/app.js
-  function stateClass2(status) {
-    return `state-${status === "critical" ? "critical" : status === "warn" ? "warn" : "ok"}`;
-  }
   function toggleTheme() {
     applyTheme(STATE.theme === "light" ? "dark" : "light");
     renderApp();
@@ -4072,9 +4078,9 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
     const budget = ((_a = APP_DATA.premium) == null ? void 0 : _a.budget) || {};
     const hasAllowance = budget.allowance !== null && budget.allowance !== void 0;
     const rawPct = hasAllowance ? Number(budget.percentUsed || 0) : 0;
-    const pct = Math.max(0, Math.min(100, rawPct));
-    const quotaLabel = hasAllowance ? `${formatPercent(rawPct)} of ${formatInteger(budget.allowance)} credits` : "no allowance set";
-    const quotaGauge = hasAllowance ? `<div class="gauge ${stateClass2(budget.status)}" style="margin-top:6px"><div class="gauge-fill ${stateClass2(budget.status)}" style="width:${pct}%"></div></div>` : "";
+    const quotaValue = hasAllowance ? formatPercent(rawPct) : "\u2014";
+    const quotaNote = hasAllowance ? `of ${formatInteger(budget.allowance)} credits${rawPct > 100 ? " \xB7 over allowance" : ""}` : "no allowance set";
+    const quotaValueClass = hasAllowance ? ` is-${budget.status === "critical" ? "critical" : budget.status === "warn" ? "warn" : "ok"}` : "";
     return `
         <div class="summary-groups">
           <div class="summary-group">
@@ -4083,9 +4089,9 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
               <div class="summary-card"><div class="label">Sessions</div><div class="value">${formatInteger(totals.sessionCount)}</div></div>
               <div class="summary-card" title="Model API calls. An agentic CLI session makes many calls per prompt, so this is much larger than the prompt count."><div class="label">Model calls</div><div class="value">${formatInteger((_b = totals.modelCalls) != null ? _b : totals.callCount)}</div></div>
               <div class="summary-card" title="User prompts submitted. This is what legacy premium-request billing counts, not model calls."><div class="label">Prompts</div><div class="value">${formatInteger((_c = totals.promptCount) != null ? _c : totals.callCount)}</div></div>
-              <div class="summary-card"><div class="label">Total input tokens</div><div class="value input">${formatInteger(block.input)}</div></div>
-              <div class="summary-card"><div class="label">Uncached input tokens</div><div class="value uncached">${formatInteger(block.uncached)}</div></div>
-              <div class="summary-card"><div class="label">Cached-read input tokens</div><div class="value cached">${formatInteger(block.cached)}</div></div>
+              <div class="summary-card" title="Total input tokens, including cached-read tokens."><div class="label">Input tokens</div><div class="value input">${formatInteger(block.input)}</div></div>
+              <div class="summary-card" title="Input tokens billed at the full uncached rate."><div class="label">Uncached input</div><div class="value uncached">${formatInteger(block.uncached)}</div></div>
+              <div class="summary-card" title="Input tokens served from the prompt cache, billed at the discounted cached rate."><div class="label">Cached-read input</div><div class="value cached">${formatInteger(block.cached)}</div></div>
               <div class="summary-card"><div class="label">Output tokens</div><div class="value output">${formatInteger(block.output)}</div></div>
             </div>
           </div>
@@ -4093,8 +4099,8 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
             <div class="summary-group-label">Cost &amp; AI credits</div>
             <div class="summary-grid">
               <div class="summary-card"><div class="label">${escapeHtml(costLabel)}</div><div class="value cost">${formatCost(block.cost)}</div></div>
-              <div class="summary-card" title="1 AI credit = $0.01 of model usage \u2014 the unit GitHub meters paid plans in."><div class="label">${escapeHtml(creditsLabel)}</div><div class="value credits">${creditsFromCost(block.cost).toFixed(1)}</div></div>
-              <div class="summary-card"><div class="label">Credit allowance used</div><div class="value">${escapeHtml(quotaLabel)}</div>${quotaGauge}</div>
+              <div class="summary-card" title="1 AI credit = $0.01 of model usage \u2014 the unit GitHub meters paid plans in."><div class="label">${escapeHtml(creditsLabel)}</div><div class="value credits">${formatCreditValue(block.cost)}</div></div>
+              <div class="summary-card"><div class="label">Credit allowance used</div><div class="value${quotaValueClass}">${escapeHtml(quotaValue)}</div><div class="note small">${escapeHtml(quotaNote)}</div></div>
               <div class="summary-card" title="Legacy premium-request estimate (one per user prompt x model multiplier). Applies only to annual Pro/Pro+ plans still billed in requests."><div class="label">Premium requests (legacy)</div><div class="value">${formatInteger(totals.premiumRequests)}</div></div>
             </div>
           </div>
@@ -4137,8 +4143,8 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
           <div class="header-top">
             <div>
               <h1>\u{1F4CA} Copilot Usage Explorer ${anonymizedBadge}</h1>
-              <div class="subtitle">Unified view across VS Code Copilot Chat and the GitHub Copilot CLI: <strong>prompt snapshots</strong> vs. <strong>billed per-call usage</strong>, AI-credit budget tracking, and cost/quota recommendations.</div>
-              <div class="subtitle small">Generated: ${escapeHtml(APP_DATA.generatedAt)} \xB7 Legacy chat period: <strong>${escapeHtml(periodLabel)}</strong> \xB7 Token mode: <strong>${escapeHtml(modeLabel)}</strong> \xB7 Chat cached share: ${formatPercent(cacheHitRateForBlock(legacyTotals))}</div>
+              <div class="subtitle">Token, cost and AI-credit usage across VS Code Copilot Chat and the GitHub Copilot CLI, with cost-reduction recommendations.</div>
+              <div class="subtitle small">Generated ${escapeHtml(APP_DATA.generatedAt)} \xB7 Tokens <strong>${escapeHtml(modeLabel)}</strong> \xB7 Chat cache hit <strong>${formatPercent(cacheHitRateForBlock(legacyTotals))}</strong> \xB7 <span title="A few chat-only panels (model usage, tool impact, telemetry) are precomputed per month server-side and stay scoped to this period rather than the global period filter above.">chat-only panels scoped to <strong>${escapeHtml(periodLabel)}</strong></span></div>
             </div>
             <div style="display:flex;gap:12px;flex-direction:column;align-items:flex-end;min-width:200px">
               <div style="display:flex;gap:8px">
@@ -4147,7 +4153,11 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
               </div>
             </div>          </div>
           ${renderFilterBar()}
-          ${renderSummaryCards()}
+          <!-- Tabs sit above the summary cards, not below them: with eleven
+               cards in between, the primary navigation started ~570px down
+               the page and was pushed off the fold on smaller screens. The
+               cards read as context for whichever tab is open, which is
+               exactly where they now sit. -->
           <div class="tabs">
             <button class="tab-button ${STATE.activeTab === "overview" ? "active" : ""}" onclick="switchTab('overview')">Overview</button>
             ${filters.source !== "cli" ? `<button class="tab-button ${STATE.activeTab === "chats" ? "active" : ""}" onclick="switchTab('chats')">Chats</button>` : ""}
@@ -4155,6 +4165,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
             ${filters.source !== "chat" ? `<button class="tab-button ${STATE.activeTab === "cli" ? "active" : ""}" onclick="switchTab('cli')">CLI</button>` : ""}
             <button class="tab-button ${STATE.activeTab === "reference" ? "active" : ""}" onclick="switchTab('reference')">Info</button>
           </div>
+          ${renderSummaryCards()}
         </section>`;
   }
   var REGIONS = [

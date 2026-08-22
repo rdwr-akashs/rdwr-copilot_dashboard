@@ -153,8 +153,17 @@ import { STATE, isBilledMode } from './state.js';
       return Math.round(n).toString();
     }
 
+    // Precision scales with magnitude. A fixed 4 decimals made aggregate
+    // figures read as raw floats rather than money ("$100.3124"), while a
+    // fixed 2 would collapse every per-call and per-1M-token price to
+    // "$0.00". So: dollars-and-cents (grouped) at $1 and above, 4 decimals
+    // below it where the fractions are the whole point.
     export function formatCost(value) {
-      return `$${Number(value || 0).toFixed(4)}`;
+      const n = Number(value || 0);
+      if (Math.abs(n) >= 1) {
+        return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      }
+      return `$${n.toFixed(4)}`;
     }
 
     // GitHub meters paid Copilot plans in AI credits, where 1 credit = $0.01 of
@@ -167,8 +176,18 @@ import { STATE, isBilledMode } from './state.js';
       return Number(cost || 0) / CREDIT_USD;
     }
 
+    // Credit counts run from fractions (a single cheap call) to five figures
+    // (a month of agentic CLI use), so the same magnitude rule as money
+    // applies: group thousands and drop the decimal once the tenths stop
+    // carrying information ("10,031", not "10031.2").
+    export function formatCreditValue(cost) {
+      const credits = creditsFromCost(cost);
+      if (Math.abs(credits) >= 1000) return Math.round(credits).toLocaleString();
+      return credits.toFixed(1);
+    }
+
     export function formatCredits(cost) {
-      return `${creditsFromCost(cost).toFixed(1)} credits`;
+      return `${formatCreditValue(cost)} credits`;
     }
 
     export function formatDuration(ms) {

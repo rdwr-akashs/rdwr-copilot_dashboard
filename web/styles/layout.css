@@ -22,25 +22,45 @@
       grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 10px;
     }
+    /* Labels are kept short enough to stay on one line, so the value sits
+       directly under its own label rather than being pushed to the bottom of
+       the tallest card in the row (which left a big gap under short cards
+       next to one carrying a note plus a gauge). */
     .summary-card {
       background: var(--panel-2);
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 14px;
+      display: flex;
+      flex-direction: column;
     }
     .summary-card .label { color: var(--muted); font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.04em; }
-    .summary-card .value { margin-top: 6px; font-size: 1.25rem; font-weight: 650; }
+    .summary-card .value {
+      margin-top: 6px;
+      font-size: 1.25rem;
+      font-weight: 650;
+      font-variant-numeric: tabular-nums;
+    }
     .value.input { color: var(--blue); }
     .value.output { color: var(--orange); }
     .value.cached { color: var(--green); }
     .value.cost { color: var(--teal); }
     .value.credits { color: var(--yellow); }
+    /* Status colouring for a plain metric value. Distinct from the
+       `.state-*` utilities, which also add a left border and an icon and are
+       meant for whole cards, not for the number inside one. */
+    .value.is-ok { color: var(--state-ok); }
+    .value.is-warn { color: var(--state-warn); }
+    .value.is-critical { color: var(--state-critical); }
+    /* The rule sits below the tabs (they precede the summary cards in the
+       header), so the active tab reads as attached to the content beneath
+       it rather than to the filter bar above. */
     .tabs {
       display: flex;
       gap: 6px;
-      margin-top: 20px;
-      padding-top: 16px;
-      border-top: 1px solid var(--border);
+      margin-top: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
       flex-wrap: wrap;
     }
     .tab-button {
@@ -64,14 +84,19 @@
       padding: 18px;
     }
     .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
-    .filter-bar input, .filter-bar select {
+    /* Text-ish inputs only. Checkboxes and radios must keep their native box
+       and intrinsic size: the blanket rules below gave them a 220px flex
+       basis and 10px of padding, which stranded the tick box far to the left
+       of the label text it belongs to. */
+    .filter-bar input:not([type="checkbox"]):not([type="radio"]),
+    .filter-bar select {
       background: var(--panel-2);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 10px 12px;
       color: var(--text);
     }
-    .filter-bar input { flex: 1 1 260px; min-width: 220px; }
+    .filter-bar input:not([type="checkbox"]):not([type="radio"]) { flex: 1 1 260px; min-width: 220px; }
     .legend { color: var(--muted); font-size: 0.9rem; }
 
     /* Sticky global filter bar. The JS agent may mark either the bar

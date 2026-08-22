@@ -262,9 +262,15 @@ import { renderPagination, renderStatCell } from './tables.js';
               ${hiddenCount ? `<button type="button" class="action-chip action-chip--blue" onclick="restoreHiddenChats()">↩ Restore hidden (${formatInteger(hiddenCount)})</button>` : ''}
             </div>
           </div>
-          <div class="legend">${isBilledMode() ? 'Each session total uses <strong>billed per-call totals</strong> directly from API usage fields.' : 'Each session total uses <strong>prompt-growth attribution</strong>: the first call in each segment is counted at full billed cost (fresh context); subsequent calls within a segment contribute only the net-new prompt delta + output. This avoids double-counting the growing conversation history across turns.'} Model switches and context resets start new segments. <code>input</code> includes cached-read tokens; uncached input is shown separately.</div>
-          <div class="note small" style="margin-top:8px">Delete actions hide chats in this browser view (persisted locally) and can be reverted with <em>Restore hidden</em>. They do not erase raw debug logs.</div>
           ${renderPagination(pages.all.length, pages.pageCount)}
+          <!-- Methodology behind a disclosure: it is a paragraph you read
+               once, and inline it pushed the first session card a full screen
+               down every visit. Collapsed keeps it one click away. -->
+          <details class="method-note">
+            <summary class="note small">How these totals are computed</summary>
+            <div class="legend" style="margin-top:8px">${isBilledMode() ? 'Each session total uses <strong>billed per-call totals</strong> directly from API usage fields.' : 'Each session total uses <strong>prompt-growth attribution</strong>: the first call in each segment is counted at full billed cost (fresh context); subsequent calls within a segment contribute only the net-new prompt delta + output. This avoids double-counting the growing conversation history across turns.'} Model switches and context resets start new segments. <code>input</code> includes cached-read tokens; uncached input is shown separately.</div>
+            <div class="note small" style="margin-top:8px">Delete actions hide chats in this browser view (persisted locally) and can be reverted with <em>Restore hidden</em>. They do not erase raw debug logs.</div>
+          </details>
         </section>
         <section class="session-list">${sessionsHtml || '<div class="panel"><div class="note">No sessions match the current filter.</div></div>'}</section>`;
     }

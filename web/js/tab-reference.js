@@ -27,7 +27,7 @@ import { sortRows } from './tables.js';
       return `
         <section class="panel">
           <h2 class="section-title">Model prices</h2>
-          <div class="section-subtitle">Info: API-style prices per 1M tokens used by cost estimation in this dashboard.</div>
+          <div class="section-subtitle">API-style prices per 1M tokens, as used by every cost estimate in this dashboard. Sorted cheapest first. Configurable in <code>model_pricing.py</code> — these are local estimates, not official GitHub billing rates.</div>
           <div class="compact-prices-wrap">
             <table class="compact-prices-table">
               <thead>

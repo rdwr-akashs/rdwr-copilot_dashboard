@@ -1,9 +1,9 @@
-import { unifiedFilteredBySourceKey, unifiedFilteredDailyRows, unifiedFilteredTotals } from './aggregate.js';
+import { unifiedFilteredBySourceKey, unifiedFilteredDailyRows } from './aggregate.js';
 import { switchAnalysisTab, switchTab } from './actions.js';
-import { currentFilters, filterInsightsBySource } from './filters.js';
+import { filterInsightsBySource } from './filters.js';
 import { renderUnifiedTrendChart } from './charts.js';
-import { creditsFromCost, escapeHtml, formatCompact, formatCost, formatInteger, formatPercent, pickTokenBlock } from './format.js';
-import { APP_DATA, STATE, isBilledMode } from './state.js';
+import { escapeHtml, formatCompact, formatCost, formatCreditValue, formatInteger, formatPercent, pickTokenBlock } from './format.js';
+import { APP_DATA, STATE } from './state.js';
 
     // Maps a status ('ok'|'warn'|'critical') onto the CSS state-class
     // contract in components.css -- colour, border weight, and an icon
@@ -34,26 +34,31 @@ import { APP_DATA, STATE, isBilledMode } from './state.js';
               <div class="note small">${escapeHtml(alert.detail || '')}</div>
             </div>`).join('')
         : '';
+      const creditUsd = Number(budget.creditUsd ?? 0.01);
       return `
         <div class="panel">
-          <div class="section-title">AI credit budget (plan: ${escapeHtml(String(budget.plan || 'unknown'))})</div>
-          <div class="note small">1 credit = ${formatCost(budget.creditUsd ?? 0.01)} of model usage. Credits used = this calendar month's billed cost x 100, across both sources.</div>
-          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:10px 0">
+          <div class="section-title">AI credit budget <span class="note small" style="font-weight:400">· plan ${escapeHtml(String(budget.plan || 'unknown'))}</span></div>
+          <div class="section-subtitle small">1 credit = $${creditUsd.toFixed(2)} of model usage. Credits used = this calendar month's billed cost x 100, across both sources.</div>
+          <!-- flex-start, not center: the gauge column is ~40px tall and the
+               card grid beside it ~250px, so centring the gauge left a band of
+               dead space above and below it once the row got narrow enough for
+               the grid to wrap into several rows. -->
+          <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin:10px 0">
             <div style="flex:1;min-width:220px">
-              <div class="gauge ${gaugeState}"><div class="gauge-fill ${gaugeState}" style="width:${hasAllowance ? pct.toFixed(1) : 0}%"></div></div>
-              <div class="note small" style="margin-top:6px">${hasAllowance ? `${formatPercent(rawPct)} of the monthly credit allowance used` : 'No credit allowance configured — usage tracked, not budget-compared'}</div>
+              <div class="gauge ${gaugeState}${rawPct > 100 ? ' is-over' : ''}"><div class="gauge-fill ${gaugeState}" style="width:${hasAllowance ? pct.toFixed(1) : 0}%"></div></div>
+              <div class="note small" style="margin-top:8px">${hasAllowance ? `<strong>${formatPercent(rawPct)}</strong> of the monthly credit allowance used${rawPct > 100 ? ' — allowance exceeded' : ''}` : 'No credit allowance configured — usage tracked, not budget-compared'}</div>
             </div>
             <div class="summary-grid" style="flex:2;min-width:280px">
-              <div class="summary-card"><div class="label">Allowance (credits)</div><div class="value">${hasAllowance ? formatInteger(budget.allowance) : '—'}</div></div>
+              <div class="summary-card"><div class="label">Allowance</div><div class="value">${hasAllowance ? formatInteger(budget.allowance) : '—'}</div><div class="note small">credits / month</div></div>
               <div class="summary-card"><div class="label">Credits used</div><div class="value">${formatInteger(budget.used)}</div><div class="note small">${formatCost(budget.usedUsd || 0)}</div></div>
               <div class="summary-card"><div class="label">Remaining</div><div class="value">${budget.remaining !== null && budget.remaining !== undefined ? formatInteger(budget.remaining) : '—'}</div></div>
               <div class="summary-card"><div class="label">Burn rate / day</div><div class="value">${formatCompact(budget.burnRatePerDay || 0)}</div></div>
-              <div class="summary-card"><div class="label">Projected month-end</div><div class="value">${formatCompact(budget.projectedMonthEnd || 0)}</div></div>
+              <div class="summary-card"><div class="label">Projected total</div><div class="value">${formatCompact(budget.projectedMonthEnd || 0)}</div><div class="note small">by month end</div></div>
               <div class="summary-card"><div class="label">Projected %</div><div class="value">${hasAllowance ? formatPercent(budget.projectedPercent || 0) : '—'}</div></div>
             </div>
           </div>
           ${alertsHtml ? `<div class="insights-grid">${alertsHtml}</div>` : ''}
-          <div class="note small" style="margin-top:8px">Legacy premium requests this month: <strong>${formatInteger(legacy.used || 0)}</strong>${legacy.allowance ? ` of ${formatInteger(legacy.allowance)}` : ''} — counted per user prompt x model multiplier, and applicable only to annual Pro/Pro+ subscriptions still billed in requests. Not used for the gauge above.</div>
+          <div class="note small" style="margin-top:12px">Legacy premium requests this month: <strong>${formatInteger(legacy.used || 0)}</strong>${legacy.allowance ? ` of ${formatInteger(legacy.allowance)}` : ''} — counted per user prompt x model multiplier, and applicable only to annual Pro/Pro+ subscriptions still billed in requests. Not used for the gauge above.</div>
         </div>`;
     }
 
@@ -136,7 +141,7 @@ import { APP_DATA, STATE, isBilledMode } from './state.js';
             <span class="badge">${escapeHtml(insight.severity || 'info')}</span>
           </div>
           <div class="note small">${escapeHtml(insight.detail || '')}</div>
-          ${insight.estimatedSavings ? `<div class="note small">Est. savings: ${formatCost(insight.estimatedSavings.cost || 0)} · ${creditsFromCost(insight.estimatedSavings.cost || 0).toFixed(0)} AI credits</div>` : ''}
+          ${insight.estimatedSavings ? `<div class="note small">Est. savings: ${formatCost(insight.estimatedSavings.cost || 0)} · ${formatCreditValue(insight.estimatedSavings.cost || 0)} AI credits</div>` : ''}
         </div>`).join('');
       return `
         <div class="panel">
@@ -152,34 +157,21 @@ import { APP_DATA, STATE, isBilledMode } from './state.js';
     }
 
     export function renderOverviewTab() {
-      const totals = unifiedFilteredTotals();
-      const block = pickTokenBlock(totals.attributed, totals.billed);
       const unified = APP_DATA.unified || {};
       const dailyRows = unifiedFilteredDailyRows();
       const trendRows = dailyRows.length ? dailyRows : (unified.monthly || []);
-      const filters = currentFilters();
 
-      const kpis = `
-        <div class="summary-grid">
-          <div class="summary-card"><div class="label">Sessions</div><div class="value">${formatInteger(totals.sessionCount)}</div></div>
-          <div class="summary-card" title="Model API calls — an agent loop makes many per prompt."><div class="label">Model calls</div><div class="value">${formatInteger(totals.modelCalls ?? totals.callCount)}</div></div>
-          <div class="summary-card" title="User prompts submitted — the unit legacy premium requests are charged in."><div class="label">Prompts</div><div class="value">${formatInteger(totals.promptCount ?? totals.callCount)}</div></div>
-          <div class="summary-card"><div class="label">Input tokens</div><div class="value input">${formatInteger(block.input)}</div></div>
-          <div class="summary-card"><div class="label">Cached tokens</div><div class="value cached">${formatInteger(block.cached)}</div></div>
-          <div class="summary-card"><div class="label">Output tokens</div><div class="value output">${formatInteger(block.output)}</div></div>
-          <div class="summary-card"><div class="label">${isBilledMode() ? 'Billed cost' : 'Attributed est. cost'}</div><div class="value cost">${formatCost(block.cost)}</div></div>
-          <div class="summary-card" title="1 AI credit = $0.01 of model usage."><div class="label">AI credits</div><div class="value credits">${creditsFromCost(block.cost).toFixed(1)}</div></div>
-        </div>`;
-
+      // No KPI card row here on purpose: the sticky header already renders
+      // the same filter-aware Sessions/calls/prompts/token/cost/credit
+      // totals, so repeating them 200px lower just made two identical grids
+      // that a reader has to compare before realising they are the same
+      // numbers. The Overview body starts with what the header cannot show:
+      // the budget verdict, the trend, and the splits.
       const emptyNote = (!dailyRows.length && !(unified.monthly || []).length)
         ? '<div class="note is-empty">No usage data recorded yet for the selected filters.</div>'
         : '';
 
       return `
-        <div class="panel">
-          <div class="section-title">Overview — ${escapeHtml(filters.source === 'all' ? 'All sources' : filters.source)} · ${escapeHtml(filters.period)}</div>
-          ${kpis}
-        </div>
         ${renderBudgetPanel()}
         <div class="panel">
           <div class="section-title">Cost &amp; token trend (Chat vs CLI)</div>
