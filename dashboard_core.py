@@ -39,7 +39,7 @@ from compact_cache import *
 from full_cache import *
 from full_cache import _FULL_SESSION_DIRS, _FULL_SESSION_INDEX, _process_session_work_item
 from html_generation import generate_html
-from cli_usage import build_cli_dashboard_data, default_cli_db_path, default_cli_otel_paths
+from cli_usage import build_cli_dashboard_data, default_cli_db_path, default_cli_otel_paths, empty_cli_payload
 from usage_model import records_from_chat_sessions, records_from_cli, build_unified
 from premium_requests import load_config as load_premium_config, build_budget, get_multiplier, MULTIPLIERS, PLAN_ALLOWANCES
 from insights_engine import build_insights_with_diagnostics
@@ -457,7 +457,7 @@ def compose_app_data(
         otel_log_paths=cli_otel_log_paths if cli_otel_log_paths is not None else default_cli_otel_paths(),
       )
     except Exception:
-      app_data["cli"] = {"available": False, "dbPath": None, "sessions": [], "byModel": [], "files": [], "tools": [], "otelAvailable": False, "otelPaths": [], "summary": {}}
+      app_data["cli"] = empty_cli_payload(cli_db_path)
 
     # Unified backend usage model + premium-request/budget accounting. Purely
     # additive: failures degrade to empty structures rather than breaking the

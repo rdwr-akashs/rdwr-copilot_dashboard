@@ -1,7 +1,7 @@
 import { monthlyTrendMetricConfig, visibleCliSessions } from './aggregate.js';
 import { renderApp } from './app.js';
 import { renderMonthlyTrendChart } from './charts.js';
-import { calcModelCost, escapeHtml, formatCost, formatDuration, formatInteger, formatPercent, formatTimestamp } from './format.js';
+import { calcModelCost, costLabel, costProvenance, costProvenanceBadge, creditsFromCost, escapeHtml, formatCost, formatCreditValue, formatDuration, formatInteger, formatPercent, formatSigned, formatTimestamp } from './format.js';
 import { openChatDeleteModal } from './modals.js';
 import { APP_DATA, HIDDEN_CLI_SESSION_IDS, PRICING_TABLE, STATE, markCliSessionsHidden, restoreHiddenCliSessions } from './state.js';
 import { renderStatCell, renderTable } from './tables.js';
@@ -104,10 +104,56 @@ import { renderStatCell, renderTable } from './tables.js';
       );
     }
 
+    // ---------------------------------------------------------------------
+    // Filtered recompute.
+    //
+    // When the global filter reduces the session set, the backend's rollups no
+    // longer describe what's on screen, so they're rebuilt here from the
+    // per-session rows. Two rules carry over from `cli_usage.py` and must not
+    // be "simplified" away:
+    //
+    //   * cost is SUMMED from the per-call figures already on those rows, never
+    //     re-priced from the aggregated token counts — re-pricing a filtered
+    //     range in one go would discard the exact per-call charges and silently
+    //     blend tiers, promotions and discounts that differ call to call;
+    //   * `inputBillable`/`cacheWrite` come off the rows rather than being
+    //     derived as `input - cached`, because `input` is all-inclusive
+    //     (uncached + cache reads + cache writes) and cache writes bill at
+    //     their own, higher rate.
+    // ---------------------------------------------------------------------
+
+    const COST_TYPES = ['input', 'cache_read', 'cache_write', 'output'];
+
+    function zeroCostByType() {
+      return { input: 0, cache_read: 0, cache_write: 0, output: 0 };
+    }
+
+    // Folds one row's cost provenance into a running bucket, so a recomputed
+    // total is labelled by where its money actually came from.
+    function addCostProvenance(bucket, row) {
+      bucket.cost += Number(row.cost || 0);
+      const byType = row.costByType || {};
+      COST_TYPES.forEach((key) => { bucket.costByType[key] += Number(byType[key] || 0); });
+      const sources = row.costSources || (row.costSource ? { [row.costSource]: 1 } : {});
+      Object.keys(sources).forEach((key) => {
+        bucket.costSources[key] = Number(bucket.costSources[key] || 0) + Number(sources[key] || 0);
+      });
+    }
+
+    function finalizeCostProvenance(bucket) {
+      const used = Object.keys(bucket.costSources).filter((key) => Number(bucket.costSources[key]) > 0);
+      bucket.costSource = used.length === 1 ? used[0] : (used.length ? 'mixed' : 'estimate');
+      bucket.costExact = used.length > 0 && used.every((key) => key === 'billed' || key === 'rates');
+      bucket.credits = creditsFromCost(bucket.cost);
+      return bucket;
+    }
+
     function computeCliSummaryFromSessions(sessions) {
       const summary = {
         sessionCount: sessions.length, callCount: 0, totalInput: 0, totalOutput: 0,
-        totalCached: 0, totalCost: 0, fileCount: 0, toolCallCount: 0, premiumRequests: 0,
+        totalCached: 0, totalCacheWrite: 0, totalInputBillable: 0, totalUncached: 0,
+        cost: 0, costByType: zeroCostByType(), costSources: {},
+        fileCount: 0, toolCallCount: 0, premiumRequests: 0,
       };
       const filePaths = new Set();
       sessions.forEach((session) => {
@@ -115,12 +161,20 @@ import { renderStatCell, renderTable } from './tables.js';
         summary.totalInput += Number(session.input || 0);
         summary.totalOutput += Number(session.output || 0);
         summary.totalCached += Number(session.cached || 0);
-        summary.totalCost += Number(session.cost || 0);
+        summary.totalCacheWrite += Number(session.cacheWrite || 0);
+        summary.totalInputBillable += Number(session.inputBillable || 0);
         summary.premiumRequests += sessionPremiumRequests(session);
+        addCostProvenance(summary, session);
         (session.files || []).forEach((file) => filePaths.add(file.path));
         (session.tools || []).forEach((tool) => { summary.toolCallCount += Number(tool.calls || 0); });
       });
       summary.fileCount = filePaths.size;
+      summary.totalUncached = summary.totalInputBillable;
+      finalizeCostProvenance(summary);
+      // The summary reads its money under `total*` names; keep both so
+      // `costProvenance()` and the cards can share one object.
+      summary.totalCost = summary.cost;
+      summary.totalCredits = summary.credits;
       return summary;
     }
 
@@ -130,20 +184,23 @@ import { renderStatCell, renderTable } from './tables.js';
         (session.modelBreakdown || []).forEach((row) => {
           const key = row.model;
           const bucket = map.get(key) || {
-            model: key, calls: 0, input: 0, cached: 0, output: 0, cost: 0, premiumRequests: 0, sessionIds: new Set(),
+            model: key, calls: 0, input: 0, inputBillable: 0, cached: 0, cacheWrite: 0, output: 0,
+            cost: 0, costByType: zeroCostByType(), costSources: {}, premiumRequests: 0, sessionIds: new Set(),
           };
           bucket.calls += Number(row.calls || 0);
           bucket.input += Number(row.input || 0);
+          bucket.inputBillable += Number(row.inputBillable || 0);
           bucket.cached += Number(row.cached || 0);
+          bucket.cacheWrite += Number(row.cacheWrite || 0);
           bucket.output += Number(row.output || 0);
-          bucket.cost += Number(row.cost || 0);
+          addCostProvenance(bucket, row);
           bucket.premiumRequests += rowPromptCount(session, row) * premiumMultiplierForModel(row.model);
           bucket.sessionIds.add(session.id);
           map.set(key, bucket);
         });
       });
       return [...map.values()]
-        .map((bucket) => ({ ...bucket, uncached: Math.max(0, bucket.input - bucket.cached), sessionCount: bucket.sessionIds.size }))
+        .map((bucket) => finalizeCostProvenance({ ...bucket, uncached: bucket.inputBillable, sessionCount: bucket.sessionIds.size }))
         .sort((a, b) => b.cost - a.cost);
     }
 
@@ -387,6 +444,52 @@ import { renderStatCell, renderTable } from './tables.js';
     }
 
     // ---------------------------------------------------------------------
+    // Cost provenance & the per-token-type split.
+    // ---------------------------------------------------------------------
+
+    const COST_TYPE_LABELS = {
+      input: 'Uncached input',
+      cache_read: 'Cached reads',
+      cache_write: 'Cache writes',
+      output: 'Output',
+    };
+
+    export function renderCliCostProvenance(summary) {
+      const total = Number(summary.totalCost || 0);
+      const byType = summary.costByType || {};
+      const provenance = costProvenance(summary);
+      const counts = summary.costSources || {};
+      const callsBySource = Object.keys(counts)
+        .sort((a, b) => Number(counts[b]) - Number(counts[a]))
+        .map((key) => `${formatInteger(counts[key])} ${escapeHtml(key)}`)
+        .join(' · ');
+
+      const rows = COST_TYPES
+        .filter((key) => Number(byType[key] || 0) !== 0)
+        .map((key) => {
+          const value = Number(byType[key] || 0);
+          const share = total ? (value / total) * 100 : 0;
+          return `<li><strong>${COST_TYPE_LABELS[key]}:</strong> ${formatCost(value)} (${formatPercent(share)})</li>`;
+        })
+        .join('');
+
+      const sourceExplanation = provenance.exact
+        ? `Every figure above is what GitHub <strong>actually charged</strong>, read per call out of <code>~/.copilot/session-store.db</code> (<code>total_nano_aiu</code>, and the exact per-token rates in <code>token_details_json</code>) and summed — not re-derived from a rate table. Promotional pricing, long-context tiers and the 10% auto-model-selection discount are therefore already included.`
+        : provenance.source === 'mixed'
+          ? `Some calls carry GitHub's own charge and others had to be priced from the published rate table (${callsBySource}), so treat the total as approximate. Calls recorded by an older CLI build have no billing columns to read.`
+          : `No billed figure was recorded for these calls, so the cost is priced from the published rate table. That table cannot see promotions or the 10% auto-model-selection discount, so this can be a few percent off in either direction.`;
+
+      return `
+        <details class="method-note">
+          <summary class="note small">Where this cost comes from ${costProvenanceBadge(summary)}</summary>
+          <div class="note small" style="margin-top:8px">${sourceExplanation}</div>
+          ${rows ? `<div class="note small" style="margin-top:8px"><strong>Where the money went</strong><ul style="margin:4px 0 0 18px">${rows}</ul></div>` : ''}
+          <div class="note small" style="margin-top:8px">Costs are always summed <em>per call</em>. Re-pricing a month's aggregated tokens in one go would blend rates that differed call to call, so it is never done — which is why these components add up to the total exactly.</div>
+          ${callsBySource ? `<div class="note small" style="margin-top:8px"><strong>Calls by cost source:</strong> ${callsBySource}</div>` : ''}
+        </details>`;
+    }
+
+    // ---------------------------------------------------------------------
     // OTel status & setup panel.
     // ---------------------------------------------------------------------
 
@@ -430,9 +533,9 @@ import { renderStatCell, renderTable } from './tables.js';
             <strong>CLI database:</strong> ${dbStatus}
           </div>`
         : `
-          <div class="${dbFound ? 'state-warn' : 'state-critical'}" style="padding:8px 12px;border-radius:8px;background:var(--panel-2);margin-bottom:10px">OTel enrichment is <strong>off</strong> — no <code>execute_tool</code> spans were parsed${paths.length ? ` from the configured path(s) (${paths.map((p) => `<code>${escapeHtml(p)}</code>`).join(', ')})` : ' (no file-exporter path is configured)'}. Without it, the Tool impact section and OTel-based efficiency views above stay hidden — this is expected, not an error.</div>
+          <div class="${dbFound ? 'state-warn' : 'state-critical'}" style="padding:8px 12px;border-radius:8px;background:var(--panel-2);margin-bottom:10px">OTel enrichment is <strong>off</strong> — no spans or metrics were parsed${paths.length ? ` from the configured path(s) (${paths.map((p) => `<code>${escapeHtml(p)}</code>`).join(', ')})` : ' (no file-exporter path is configured)'}. Without it, the Tool impact section and OTel-based efficiency views above stay hidden, and there is no independent source to cross-check the billed cost against — this is expected, not an error. <strong>Cost is unaffected:</strong> it comes from <code>session-store.db</code>, which records what GitHub charged.</div>
           <div class="note small" style="margin-bottom:8px"><strong>CLI database:</strong> ${dbStatus}</div>
-          <div class="note small" style="margin-bottom:8px">Per the official docs, CLI OTel activates when any of <code>COPILOT_OTEL_ENABLED=true</code>, <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>, or <code>COPILOT_OTEL_FILE_EXPORTER_PATH</code> is set. This dashboard reads the <strong>file exporter</strong> format, so set <code>COPILOT_OTEL_FILE_EXPORTER_PATH</code> before running <code>copilot</code>, then point the dashboard at that file with <code>--cli-otel-log &lt;path&gt;</code>.</div>
+          <div class="note small" style="margin-bottom:8px">Per the official docs, CLI OTel activates when any of <code>COPILOT_OTEL_ENABLED=true</code>, <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>, or <code>COPILOT_OTEL_FILE_EXPORTER_PATH</code> is set. This dashboard reads the <strong>file exporter</strong> format, so set <code>COPILOT_OTEL_FILE_EXPORTER_PATH</code> before running <code>copilot</code>, then point the dashboard at that file with <code>--cli-otel-log &lt;path&gt;</code>. With the default <code>otlp-http</code> exporter the CLI posts spans and metrics to a collector on <code>:4318</code> and drops them if nothing is listening, which is why an unset file-exporter path leaves this panel empty.</div>
           <div class="code-block" style="margin-bottom:10px">
             <div class="note small" style="margin-bottom:6px;font-weight:700">PowerShell</div>
             <pre id="cliOtelPsSnippet" style="margin:0;white-space:pre-wrap">$env:COPILOT_OTEL_FILE_EXPORTER_PATH = "$HOME\\.copilot\\otel.jsonl"
@@ -455,7 +558,96 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
           <h2 class="section-title">OpenTelemetry status</h2>
           <div class="section-subtitle">Diagnostics for the CLI's optional OpenTelemetry file-exporter enrichment layer, and the underlying <code>session-store.db</code> read.</div>
           ${statusBody}
+          ${renderCliOtelMetrics(cli)}
         </section>`;
+    }
+
+    // ---------------------------------------------------------------------
+    // OTel metrics & reconciliation.
+    //
+    // The CLI emits metrics as well as spans, but the instrument names are not
+    // in the published docs and differ across builds — so the parser classifies
+    // them heuristically and reports every instrument it saw, and this panel
+    // shows that list verbatim. If a build renames something, it shows up here
+    // as an unclassified instrument rather than silently vanishing.
+    //
+    // Metrics are never a cost source. `session-store.db` records the charge
+    // itself, so OTel is used as an *independent cross-check*: the deltas below
+    // are the honest way to surface an export that is incomplete (a collector
+    // started mid-session, or a session it never received) instead of quietly
+    // reporting a number that disagrees with GitHub's billing page.
+    // ---------------------------------------------------------------------
+
+    function renderOtelDelta(row, formatValue) {
+      if (!row || row.otel === null || row.otel === undefined || row.db === null || row.db === undefined) {
+        return '<span class="note small">not reported</span>';
+      }
+      const delta = Number(row.delta || 0);
+      if (!delta) return '<span class="badge confidence-high">exact match</span>';
+      const pct = row.deltaPct === null || row.deltaPct === undefined ? '' : ` (${formatSigned(row.deltaPct)}%)`;
+      const cls = delta < 0 ? 'confidence-medium' : 'confidence-low';
+      const direction = delta < 0 ? 'OTel is short' : 'OTel is over';
+      return `<span class="badge ${cls}" title="${escapeHtml(direction)} — the dashboard reports the session-store.db figure regardless.">${formatValue(delta)}${pct}</span>`;
+    }
+
+    export function renderCliOtelMetrics(cli) {
+      const otel = cli.otel || {};
+      if (!otel.available) return '';
+      const instruments = otel.instruments || [];
+      const counts = otel.recordCounts || {};
+      const tokens = otel.tokens || {};
+      const spend = otel.spend || {};
+      const recon = cli.otelReconciliation || {};
+
+      const instrumentTable = instruments.length ? renderTable([
+        { title: 'Instrument', render: (row) => `<code>${escapeHtml(row.instrument)}</code>` },
+        { title: 'Unit', render: (row) => (row.unit ? `<code>${escapeHtml(row.unit)}</code>` : '—') },
+        {
+          title: 'Read as',
+          render: (row) => (row.kind
+            ? `<span class="badge ${row.kind === 'spend' ? 'tool' : 'chat'}">${escapeHtml(row.kind)}</span>`
+            : '<span class="badge confidence-low" title="Not recognised as a token or spend instrument, so it is reported but not used.">unclassified</span>'),
+        },
+        { title: 'Data points', numeric: true, render: (row) => formatInteger(row.points) },
+        { title: 'Total', numeric: true, render: (row) => formatInteger(row.total) },
+      ], instruments) : '';
+
+      const tokenRecon = recon.tokens || {};
+      const tokenReconRows = COST_TYPES.filter((key) => tokenRecon[key]).map((key) => ({ type: key, ...tokenRecon[key] }));
+      const tokenReconTable = tokenReconRows.length ? renderTable([
+        { title: 'Token type', render: (row) => COST_TYPE_LABELS[row.type] || row.type },
+        { title: 'From OTel', numeric: true, render: (row) => formatInteger(row.otel) },
+        { title: 'From session-store.db', numeric: true, render: (row) => formatInteger(row.db) },
+        { title: 'Agreement', render: (row) => renderOtelDelta(row, (delta) => formatSigned(delta)) },
+      ], tokenReconRows) : '';
+
+      const spendRecon = recon.spend || {};
+      const spendBlock = spend.instrument
+        ? `
+          <div class="note small" style="margin-top:10px">
+            <strong>Spend instrument:</strong> <code>${escapeHtml(spend.instrument)}</code> reporting ${formatInteger(spend.raw)} <code>${escapeHtml(spend.unit || 'unknown unit')}</code>${
+              spend.usd === null || spend.usd === undefined
+                ? ' — its unit is not one this dashboard can convert to money, so it is shown raw rather than guessed at. A wrong conversion factor would be indistinguishable from a real cost.'
+                : ` = ${formatCost(spend.usd)}, versus ${formatCost(spendRecon.db)} billed in <code>session-store.db</code>: ${renderOtelDelta(spendRecon, (delta) => formatCost(delta))}`
+            }
+          </div>`
+        : '<div class="note small" style="margin-top:10px">No spend/credit instrument was present in the export, so there is nothing to cross-check the billed cost against. This does not affect the cost shown above, which comes from <code>session-store.db</code>.</div>';
+
+      return `
+        <h3 style="margin-top:18px">Metrics &amp; cross-check</h3>
+        <div class="note small" style="margin-bottom:10px">
+          <strong>Records read:</strong> ${formatInteger(counts.span)} spans, ${formatInteger(counts.metric)} metrics${Number(counts.other || 0) ? `, ${formatInteger(counts.other)} other records skipped` : ''}.
+          ${Number(counts.metric || 0) ? '' : ' No metric records were found — with the default <code>otlp-http</code> exporter the CLI sends metrics to a collector instead of a file, and they never reach the dashboard.'}
+        </div>
+        <div class="note small" style="margin-bottom:10px">
+          <strong>Tokens seen in metrics/spans:</strong>
+          ${COST_TYPES.map((key) => `${COST_TYPE_LABELS[key]} ${formatInteger(tokens[key])}`).join(' · ')}
+        </div>
+        ${instrumentTable ? `<div class="table-scroll" style="margin-bottom:10px">${instrumentTable}</div>` : ''}
+        ${spendBlock}
+        ${tokenReconTable ? `
+          <div class="note small" style="margin:12px 0 6px"><strong>OTel vs <code>session-store.db</code></strong> — two independent records of the same sessions. The dashboard always reports the database figure, since that is what GitHub billed; a non-zero delta means the export is missing (or double-counting) usage, not that the cost is wrong.</div>
+          <div class="table-scroll">${tokenReconTable}</div>` : ''}`;
     }
 
     export function renderCliTab() {
@@ -499,14 +691,17 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
           <div class="summary-grid">
             <div class="summary-card"><div class="label">CLI sessions</div><div class="value">${formatInteger(summary.sessionCount)}</div></div>
             <div class="summary-card"><div class="label">Model calls</div><div class="value">${formatInteger(summary.callCount)}</div></div>
-            <div class="summary-card"><div class="label">Input tokens</div><div class="value input">${formatInteger(summary.totalInput)}</div></div>
+            <div class="summary-card" title="All-inclusive prompt tokens: uncached input + cached reads + cache writes."><div class="label">Input tokens</div><div class="value input">${formatInteger(summary.totalInput)}</div></div>
             <div class="summary-card"><div class="label">Cached-read input</div><div class="value cached">${formatInteger(summary.totalCached)}</div></div>
+            <div class="summary-card" title="Prompt tokens written into the provider cache. Billed at their own, higher rate (1.25x input for Anthropic models) — not at the input rate."><div class="label">Cache-write input</div><div class="value">${formatInteger(summary.totalCacheWrite)}</div></div>
             <div class="summary-card"><div class="label">Output tokens</div><div class="value output">${formatInteger(summary.totalOutput)}</div></div>
-            <div class="summary-card"><div class="label">Estimated cost</div><div class="value cost">${formatCost(summary.totalCost)}</div></div>
+            <div class="summary-card"><div class="label">${costLabel(summary)}</div><div class="value cost">${formatCost(summary.totalCost)}</div><div class="note small">${costProvenanceBadge(summary)}</div></div>
+            <div class="summary-card" title="GitHub meters paid plans in AI credits: 1 credit = $0.01 of model usage."><div class="label">AI credits</div><div class="value cost">${formatCreditValue(summary.totalCost)}</div></div>
             <div class="summary-card"><div class="label">Files touched</div><div class="value">${formatInteger(summary.fileCount)}</div></div>
             <div class="summary-card" title="Legacy per-prompt meter. Credit-billed plans are metered on cost instead — see the AI credit budget on Overview."><div class="label">Premium requests</div><div class="value">${formatInteger(totalPremiumRequests)}</div><div class="note small">legacy est.</div></div>
             ${cli.otelAvailable ? `<div class="summary-card"><div class="label">Tool calls</div><div class="value">${formatInteger(summary.toolCallCount)}</div><div class="note small">from OTel</div></div>` : ''}
           </div>
+          ${renderCliCostProvenance(summary)}
           <details class="method-note">
             <summary class="note small">How premium requests are estimated here</summary>
             <div class="note small" style="margin-top:8px">Premium requests are the legacy meter (annual request-billed Pro/Pro+ only); credit-billed plans are metered on cost — see the AI credit budget on Overview. Counts are local estimates: one per user prompt (apportioned from <code>turnCount</code>, not per model call) times the model multiplier from <code>APP_DATA.premium.multipliers</code>, not official GitHub billing — check github.com/settings/billing for the authoritative figures.</div>
@@ -519,8 +714,10 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
         { title: 'Input', numeric: true, render: (row) => `<span class="value input">${formatInteger(row.input)}</span>` },
         { title: 'Uncached input', numeric: true, render: (row) => `<span class="value uncached">${formatInteger(row.uncached)}</span>` },
         { title: 'Cached-read input', numeric: true, render: (row) => `<span class="value cached">${formatInteger(row.cached)}</span>` },
+        { title: 'Cache-write input', numeric: true, render: (row) => `<span class="value">${formatInteger(row.cacheWrite)}</span>` },
         { title: 'Output', numeric: true, render: (row) => `<span class="value output">${formatInteger(row.output)}</span>` },
-        { title: 'Cost', numeric: true, render: (row) => `<span class="value cost">${formatCost(row.cost)}</span>` },
+        { title: 'Cost', numeric: true, render: (row) => `<div><span class="value cost">${formatCost(row.cost)}</span><div class="note small">${costProvenanceBadge(row)}</div></div>` },
+        { title: 'Credits', numeric: true, render: (row) => `<span class="value cost">${formatCreditValue(row.cost)}</span>` },
         { title: 'Premium reqs (legacy est.)', numeric: true, render: (row) => formatInteger(row.premiumRequests) },
       ], byModelRows);
 
@@ -670,8 +867,10 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
           <div class="meta-card"><div class="label">Total input</div><div class="value input">${formatInteger(session.input)}</div></div>
           <div class="meta-card"><div class="label">Uncached input</div><div class="value uncached">${formatInteger(session.uncached)}</div></div>
           <div class="meta-card"><div class="label">Cached-read</div><div class="value cached">${formatInteger(session.cached)}</div></div>
+          <div class="meta-card" title="Prompt tokens written into the provider cache, billed at their own higher rate."><div class="label">Cache-write</div><div class="value">${formatInteger(session.cacheWrite)}</div></div>
           <div class="meta-card"><div class="label">Total output</div><div class="value output">${formatInteger(session.output)}</div></div>
-          <div class="meta-card"><div class="label">Estimated cost</div><div class="value cost">${formatCost(session.cost)}</div></div>
+          <div class="meta-card"><div class="label">${costLabel(session)}</div><div class="value cost">${formatCost(session.cost)}</div><div class="note small">${costProvenanceBadge(session)}</div></div>
+          <div class="meta-card" title="1 AI credit = $0.01 of model usage."><div class="label">AI credits</div><div class="value cost">${formatCreditValue(session.cost)}</div></div>
           <div class="meta-card"><div class="label">Cache hit rate</div><div class="value cached">${formatPercent(session.input ? (session.cached / session.input) * 100 : 0)}</div></div>
           <div class="meta-card"><div class="label">Files touched</div><div class="value">${formatInteger((session.files || []).length)}</div></div>
           <div class="meta-card"><div class="label">Created</div><div class="value">${escapeHtml(formatTimestamp(session.createdAt))}</div></div>
@@ -686,15 +885,17 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
         <div class="event-section" style="margin-bottom:14px">
           <h4>Per-model breakdown</h4>
           <table>
-            <thead><tr><th>Model</th><th class="num">Calls</th><th class="num">Input</th><th class="num">Cached-read</th><th class="num">Output</th><th class="num">Cost</th></tr></thead>
+            <thead><tr><th>Model</th><th class="num">Calls</th><th class="num">Input</th><th class="num">Cached-read</th><th class="num">Cache-write</th><th class="num">Output</th><th class="num">Cost</th><th class="num">Credits</th></tr></thead>
             <tbody>
               ${rows.map((row) => `<tr>
                 <td>${escapeHtml(row.model)}</td>
                 <td class="num">${formatInteger(row.calls)}</td>
                 <td class="num"><span class="value input">${formatInteger(row.input)}</span></td>
                 <td class="num"><span class="value cached">${formatInteger(row.cached)}</span></td>
+                <td class="num"><span class="value">${formatInteger(row.cacheWrite)}</span></td>
                 <td class="num"><span class="value output">${formatInteger(row.output)}</span></td>
-                <td class="num"><span class="value cost">${formatCost(row.cost)}</span></td>
+                <td class="num"><span class="value cost">${formatCost(row.cost)}</span> ${costProvenanceBadge(row)}</td>
+                <td class="num"><span class="value cost">${formatCreditValue(row.cost)}</span></td>
               </tr>`).join('')}
             </tbody>
           </table>
@@ -829,30 +1030,39 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
       if (!session) return;
       const inputTokens = session.input || 0;
       const cachedTokens = session.cached || 0;
+      const cacheWriteTokens = session.cacheWrite || 0;
       const outputTokens = session.output || 0;
       const actualModel = (session.models || [])[0] || 'unknown';
       const actualCost = session.cost || 0;
+      const actualProvenance = costProvenance(session);
       const titleText = session.repository || session.cwd || session.id;
 
       document.getElementById('modelCompareModalTitle').textContent = 'Model cost comparison';
       document.getElementById('modelCompareModalSubtitle').textContent = titleText + ' · ' + formatInteger(inputTokens) + ' input · ' + formatInteger(outputTokens) + ' output tokens (session total)';
 
+      // The three token counts are passed through unchanged - `input` already
+      // contains the cached reads and the cache writes, and calcModelCost()
+      // carves them out - so cache writes bill at each model's own cache-write
+      // rate instead of at its input rate, which was overstating cheap-input
+      // models and understating Anthropic ones.
       const rows = Object.entries(PRICING_TABLE).map(([model, pricing]) => ({
         model,
-        cost: calcModelCost(inputTokens, cachedTokens, outputTokens, pricing),
+        cost: calcModelCost(inputTokens, cachedTokens, outputTokens, pricing, cacheWriteTokens),
         pricing,
       })).sort((a, b) => a.cost - b.cost);
 
       const minCost = rows[0]?.cost || 0;
 
       document.getElementById('modelCompareModalContent').innerHTML = `
-        <div class="note small" style="margin-bottom:12px">Estimated cost if this session's total token usage (<strong>${formatInteger(inputTokens)}</strong> input, <strong>${formatInteger(cachedTokens)}</strong> cached, <strong>${formatInteger(outputTokens)}</strong> output) was processed by each model. Assumes same cache hit pattern.</div>
+        <div class="note small" style="margin-bottom:12px">Estimated cost if this session's total token usage (<strong>${formatInteger(inputTokens)}</strong> input, of which <strong>${formatInteger(cachedTokens)}</strong> cached reads and <strong>${formatInteger(cacheWriteTokens)}</strong> cache writes, plus <strong>${formatInteger(outputTokens)}</strong> output) was processed by each model. Assumes the same cache hit pattern.</div>
+        <div class="note small" style="margin-bottom:12px">Every figure in the <strong>Est. Cost</strong> column is priced from the published rate table, so it carries that table's caveats — notably that the 10% auto-model-selection discount is not modelled. The <strong>vs actual</strong> column compares against ${escapeHtml(actualProvenance.exact ? "this session's billed cost, which is exact" : "this session's estimated cost, which is itself approximate")}, so read small differences with that in mind.</div>
         <div style="overflow-x:auto">
         <table>
           <thead><tr>
             <th>Model</th>
             <th class="num">Input $/M</th>
             <th class="num">Cached $/M</th>
+            <th class="num" title="Writing a prompt into the provider cache. Models that do not price cache writes show $0.">Cache-write $/M</th>
             <th class="num">Output $/M</th>
             <th class="num">Est. Cost</th>
             <th class="num">vs actual</th>
@@ -866,6 +1076,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
                 <td><strong style="${isCheapest ? 'color:var(--green)' : ''}">${escapeHtml(row.model)}</strong>${isActual ? ' <span class="badge chat" style="font-size:0.65rem;padding:2px 6px">current</span>' : ''}${isCheapest ? ' <span class="badge mode-read" style="font-size:0.65rem;padding:2px 6px">cheapest</span>' : ''}</td>
                 <td class="num">${formatCost(row.pricing.input)}</td>
                 <td class="num">${formatCost(row.pricing.cached)}</td>
+                <td class="num">${Number(row.pricing.cacheWrite || 0) ? formatCost(row.pricing.cacheWrite) : '<span class="note small">n/a</span>'}</td>
                 <td class="num">${formatCost(row.pricing.output)}</td>
                 <td class="num"><strong style="color:var(--teal)">${formatCost(row.cost)}</strong></td>
                 <td class="num" style="color:${delta < -0.0001 ? 'var(--green)' : delta > 0.0001 ? 'var(--red)' : 'var(--muted)'}">${isActual ? '—' : (delta >= 0 ? '+' : '') + formatCost(Math.abs(delta))}</td>

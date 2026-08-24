@@ -34,28 +34,32 @@ from typing import Any
 # GitHub Copilot model prices, USD per 1M tokens.
 #
 # SOURCE OF TRUTH: https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing
-# (the "Pricing tables" section). Verified against that page on 2026-08-21;
+# (the "Pricing tables" section). Verified against that page on 2026-08-24;
 # every value in the "current" block below is quoted from it verbatim. GitHub
 # bills Copilot usage in AI credits, where 1 credit = $0.01 USD, priced off
 # these same per-token rates (see premium_requests.py), so a dollar figure here
 # is 100x the credit figure GitHub charges.
 #
-# Three documented cost components this table deliberately does NOT model:
+# THIS TABLE IS THE FALLBACK, NOT THE PRIMARY COST SOURCE. The Copilot CLI's
+# session-store.db records what GitHub actually billed per call
+# (`total_nano_aiu`, plus the per-token-type rates it applied in
+# `token_details_json`), so CLI costs are read from that and are exact - see
+# `cli_usage.py`. This table prices the VS Code chat half of the data, where no
+# billing figure is exposed, and backstops CLI rows that predate those columns.
 #
-#   1. Cache writes. Officially priced (see CACHE_WRITE_PRICING below) but VS
-#      Code chat telemetry exposes no cache-write counter, so applying it would
-#      be guesswork for the chat half of the data. Costs here are therefore a
-#      lower bound for cache-heavy sessions. (The CLI's session-store.db *does*
-#      carry `cacheWrite` per model bucket - wiring that up is a separate,
-#      source-asymmetric change.)
-#   2. Long-context tiers. Several models double above a context threshold:
-#      GPT-5.4/5.5/5.6-Sol/5.6-Terra above 272K, GPT-5.6-Luna / Gemini 3.1 Pro
-#      / Grok 4.5-4.6 above 200K. Neither data source records per-call context
-#      size, so only the default (below-threshold) tier is priced.
-#   3. The 10% discount on model costs when using auto model selection.
+# What the table can and cannot model when used as that fallback:
 #
-# All three make estimates conservative (under-, not over-stated) except where
-# a long-context call is mispriced at the default tier.
+#   1. Cache writes ARE priced, from CACHE_WRITE_PRICING below, whenever the
+#      caller can supply a cache-write token count (the CLI can; VS Code chat
+#      telemetry exposes no cache-write counter, so chat costs remain a lower
+#      bound for cache-heavy sessions).
+#   2. Long-context tiers ARE priced, from LONG_CONTEXT_PRICING below, whenever
+#      the caller supplies the call's prompt size. Both sources record
+#      per-call input tokens, so this applies to chat and CLI alike.
+#   3. The 10% discount on model costs when using auto model selection is NOT
+#      modelled - nothing in either source flags a call as auto-routed. It
+#      makes fallback estimates up to 10% high on auto-routed calls. Costs read
+#      from `total_nano_aiu` / `token_details_json` already have it applied.
 PRICING = {
     # ---------------- Anthropic ----------------
     "claude-haiku-4.5": {"input": 1.00, "cached": 0.10, "output": 5.00},
@@ -83,7 +87,9 @@ PRICING = {
     "gpt-5.5": {"input": 5.00, "cached": 0.50, "output": 30.00},
     "gpt-5.6-luna": {"input": 0.20, "cached": 0.02, "output": 1.20},
     "gpt-5.6-terra": {"input": 2.00, "cached": 0.20, "output": 12.00},
-    "gpt-5.6-sol": {"input": 5.00, "cached": 0.50, "output": 30.00},
+    # GPT-5.6 Sol carries promotional pricing through 2026-09-03; these rates
+    # will rise when the promotion ends.
+    "gpt-5.6-sol": {"input": 2.00, "cached": 0.20, "output": 10.00},
     # ---------------- Google ----------------
     "gemini-3.1-pro": {"input": 2.00, "cached": 0.20, "output": 12.00},
     "gemini-3.5-flash": {"input": 1.50, "cached": 0.15, "output": 9.00},
@@ -119,9 +125,10 @@ PRICING = {
 }
 
 # Officially documented cache-WRITE rates, USD per 1M tokens, for the models
-# that have one (Anthropic: 1.25x input; GPT-5.6 family). Recorded here so the
-# published number lives in the repo, but NOT applied by `calculate_cost` -
-# see component (1) in the note above.
+# that have one (Anthropic: 1.25x input; GPT-5.6 family). Every other model
+# prints "Not applicable" on the pricing page and is billed 0 for cache
+# writes - hence `cache_write_rate()` returning 0.0 for an absent key rather
+# than falling back to a multiple of the input rate.
 CACHE_WRITE_PRICING = {
     "claude-haiku-4.5": 1.25,
     "claude-sonnet-4": 3.75,
@@ -138,8 +145,60 @@ CACHE_WRITE_PRICING = {
     "claude-fable-5": 12.50,
     "gpt-5.6-luna": 0.25,
     "gpt-5.6-terra": 2.50,
-    "gpt-5.6-sol": 6.25,
+    "gpt-5.6-sol": 2.50,
 }
+
+# Long-context tiers, quoted from the same pricing page. Above `threshold`
+# prompt tokens the whole call is billed at these rates instead of the default
+# ones in PRICING/CACHE_WRITE_PRICING. Models absent from this dict have a
+# single tier at any prompt size.
+#
+# `cacheWrite` is only present where the page prints one; where it is absent
+# the model bills nothing for cache writes at either tier.
+LONG_CONTEXT_PRICING = {
+    "gpt-5.4": {"threshold": 272_000, "input": 5.00, "cached": 0.50, "output": 22.50},
+    "gpt-5.5": {"threshold": 272_000, "input": 10.00, "cached": 1.00, "output": 45.00},
+    "gpt-5.6-luna": {"threshold": 200_000, "input": 0.40, "cached": 0.04, "cacheWrite": 0.50, "output": 1.80},
+    "gpt-5.6-sol": {"threshold": 272_000, "input": 4.00, "cached": 0.40, "cacheWrite": 5.00, "output": 15.00},
+    "gpt-5.6-terra": {"threshold": 272_000, "input": 4.00, "cached": 0.40, "cacheWrite": 5.00, "output": 18.00},
+    "gemini-3.1-pro": {"threshold": 200_000, "input": 4.00, "cached": 0.40, "output": 18.00},
+    "grok-4.5": {"threshold": 200_000, "input": 4.00, "cached": 1.00, "output": 12.00},
+    "grok-4.6": {"threshold": 200_000, "input": 4.00, "cached": 1.00, "output": 12.00},
+}
+
+# GitHub meters Copilot model usage in AI credits: 1 credit (1 "AIU") = $0.01.
+# The CLI's session-store.db records per-call spend in *nano* AIU, so one
+# nano-AIU is $1e-11. Verified numerically against `token_details_json`: for
+# every sampled call, sum(tokenCount / batchSize * costPerBatch) equals
+# `total_nano_aiu` exactly, and the implied per-1M rates match the published
+# pricing table above to the cent.
+AIU_USD = 0.01
+NANO_AIU_PER_AIU = 1_000_000_000
+NANO_AIU_USD = AIU_USD / NANO_AIU_PER_AIU  # 1e-11
+
+# The billed token categories GitHub prices separately, in the order they are
+# reported. `cache_read`/`cache_write` are the wire names used by the CLI's
+# `token_details_json`; `input` there means the *uncached* remainder of the
+# prompt, NOT the whole prompt.
+TOKEN_TYPES = ("input", "cache_read", "cache_write", "output")
+
+# Maps a billed token category to its key in a PRICING / LONG_CONTEXT_PRICING row.
+_RATE_KEY_FOR_TOKEN_TYPE = {
+    "input": "input",
+    "cache_read": "cached",
+    "cache_write": "cacheWrite",
+    "output": "output",
+}
+
+
+def nano_aiu_to_usd(nano_aiu: float | int | None) -> float:
+    """Convert GitHub's billed nano-AI-units into USD (1 nano AIU = $1e-11)."""
+    return float(nano_aiu or 0.0) * NANO_AIU_USD
+
+
+def usd_to_nano_aiu(usd: float | None) -> float:
+    """Convert USD back into nano AI units."""
+    return float(usd or 0.0) / NANO_AIU_USD
 
 # Applied when a model name matches nothing below. Sonnet-tier rates: the most
 # common "versatile" tier on the official table, so an unknown model lands on a
@@ -163,29 +222,167 @@ def match_keys(table) -> list[str]:
 
 
 _PRICING_MATCH_KEYS = match_keys(PRICING)
+_CACHE_WRITE_MATCH_KEYS = match_keys(CACHE_WRITE_PRICING)
+_LONG_CONTEXT_MATCH_KEYS = match_keys(LONG_CONTEXT_PRICING)
+
+
+def _match(model_name: str | None, table, keys) -> Any | None:
+    """Longest-key-first lookup of `model_name` in one of the rate tables."""
+    model_lower = (model_name or "").lower()
+    if model_lower in table:
+        return table[model_lower]
+    for key in keys:
+        if model_lower.startswith(key) or key in model_lower:
+            return table[key]
+    return None
 
 
 def get_pricing(model_name: str | None) -> dict[str, float]:
-    model_lower = (model_name or "").lower()
-    if model_lower in PRICING:
-        return PRICING[model_lower]
-    for key in _PRICING_MATCH_KEYS:
-        if model_lower.startswith(key) or key in model_lower:
-            return PRICING[key]
-    return dict(DEFAULT_PRICING)
+    matched = _match(model_name, PRICING, _PRICING_MATCH_KEYS)
+    return matched if matched is not None else dict(DEFAULT_PRICING)
 
 
-def calculate_cost(input_tokens: float, output_tokens: float, cached_tokens: float, model_name: str | None) -> dict[str, float]:
-    pricing = get_pricing(model_name)
-    non_cached_input = max(0.0, float(input_tokens) - float(cached_tokens))
-    cost_input = (non_cached_input / 1_000_000) * pricing["input"]
-    cost_cached = (float(cached_tokens) / 1_000_000) * pricing["cached"]
-    cost_output = (float(output_tokens) / 1_000_000) * pricing["output"]
+def cache_write_rate(model_name: str | None) -> float:
+    """Published cache-write rate (USD per 1M tokens), or 0.0 if unpriced.
+
+    Models whose pricing row prints "Not applicable" for cache write are billed
+    nothing for those tokens, so 0.0 is the correct rate - not a guess.
+    """
+    matched = _match(model_name, CACHE_WRITE_PRICING, _CACHE_WRITE_MATCH_KEYS)
+    return float(matched) if matched is not None else 0.0
+
+
+def get_rates(model_name: str | None, prompt_tokens: float | None = None) -> dict[str, Any]:
+    """Resolve the four billed per-1M rates for a call, long-context tier included.
+
+    `prompt_tokens` is the call's total prompt size (cached + uncached + cache
+    writes), which is what GitHub compares against a model's long-context
+    threshold. Pass None when the caller does not know it; the default tier is
+    then used, exactly as before.
+
+    Returns {"input", "cache_read", "cache_write", "output", "tier"} where the
+    rate values are USD per 1M tokens.
+    """
+    default = get_pricing(model_name)
+    rates = {
+        "input": float(default["input"]),
+        "cache_read": float(default["cached"]),
+        "cache_write": cache_write_rate(model_name),
+        "output": float(default["output"]),
+        "tier": "default",
+    }
+
+    tier = _match(model_name, LONG_CONTEXT_PRICING, _LONG_CONTEXT_MATCH_KEYS)
+    if tier and prompt_tokens is not None and float(prompt_tokens) > float(tier["threshold"]):
+        rates["input"] = float(tier["input"])
+        rates["cache_read"] = float(tier["cached"])
+        rates["output"] = float(tier["output"])
+        # Absent `cacheWrite` on a long-context row means the model does not
+        # price cache writes at all, so keep the (zero) default-tier rate.
+        if "cacheWrite" in tier:
+            rates["cache_write"] = float(tier["cacheWrite"])
+        rates["tier"] = "long"
+
+    return rates
+
+
+def cost_from_token_counts(
+    counts: dict[str, float],
+    model_name: str | None,
+    prompt_tokens: float | None = None,
+    rates: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    """Price already-split billed token counts, one entry per TOKEN_TYPES key.
+
+    `counts` uses GitHub's own categories, so `counts["input"]` is the
+    *uncached* prompt remainder - never the whole prompt. Callers holding an
+    all-inclusive prompt counter should use `split_prompt_tokens()` first.
+
+    `rates` overrides the published table when the caller knows the exact rates
+    GitHub applied to this call (the CLI reads them out of
+    `token_details_json`), which is what makes a priced-from-rates cost exact
+    rather than an estimate.
+
+    Returns {"cost", "byType": {type: usd}, "rates", "tier"}.
+    """
+    resolved = dict(rates) if rates else get_rates(model_name, prompt_tokens)
+    by_type = {}
+    total = 0.0
+    for token_type in TOKEN_TYPES:
+        tokens = max(0.0, float(counts.get(token_type) or 0.0))
+        usd = (tokens / 1_000_000.0) * float(resolved.get(token_type) or 0.0)
+        by_type[token_type] = usd
+        total += usd
+    return {
+        "cost": total,
+        "byType": by_type,
+        "rates": {k: float(resolved.get(k) or 0.0) for k in TOKEN_TYPES},
+        "tier": resolved.get("tier", "default"),
+    }
+
+
+def split_prompt_tokens(prompt_tokens: float, cache_read_tokens: float, cache_write_tokens: float) -> dict[str, float]:
+    """Split an all-inclusive prompt counter into GitHub's billed categories.
+
+    Both data sources report a single prompt total (`input_tokens` in the CLI
+    DB, `inputTokens` in chat telemetry) that *contains* the cache-read and
+    cache-write tokens - verified against the CLI DB, where
+    `input_tokens == input + cache_read + cache_write` from
+    `token_details_json` on every row. Charging the whole prompt at the input
+    rate on top of the cache lines would double-bill it; charging
+    `prompt - cache_read` at the input rate (what this repo used to do) bills
+    cache writes at the input rate instead of the higher cache-write rate.
+    """
+    cache_read = max(0.0, float(cache_read_tokens or 0.0))
+    cache_write = max(0.0, float(cache_write_tokens or 0.0))
+    return {
+        "input": max(0.0, float(prompt_tokens or 0.0) - cache_read - cache_write),
+        "cache_read": cache_read,
+        "cache_write": cache_write,
+    }
+
+
+def calculate_cost(
+    input_tokens: float,
+    output_tokens: float,
+    cached_tokens: float,
+    model_name: str | None,
+    cache_write_tokens: float = 0.0,
+    rates: dict[str, float] | None = None,
+) -> dict[str, float]:
+    """Price one call (or one aggregated bucket) from published rates.
+
+    `input_tokens` is the all-inclusive prompt counter both sources report, so
+    the cache-read and cache-write tokens are carved out of it rather than
+    charged on top - see `split_prompt_tokens`. It also selects the
+    long-context tier where the model has one.
+
+    `cache_write_tokens` defaults to 0 because VS Code chat telemetry has no
+    such counter; the CLI passes its real value.
+
+    `rates` lets a caller substitute the exact rates GitHub billed at instead
+    of the published table.
+
+    Keeps its original return keys - `uncached` still means "prompt tokens
+    billed at the full input rate" - and adds `cacheWrite`, `costByType`,
+    `tier`, and `rates`.
+    """
+    counts = split_prompt_tokens(input_tokens, cached_tokens, cache_write_tokens)
+    priced = cost_from_token_counts(
+        {**counts, "output": float(output_tokens or 0.0)},
+        model_name,
+        prompt_tokens=float(input_tokens or 0.0),
+        rates=rates,
+    )
     return {
         "input": float(input_tokens),
-    "uncached": non_cached_input,
+        "uncached": counts["input"],
         "output": float(output_tokens),
-        "cached": float(cached_tokens),
-        "cost": cost_input + cost_cached + cost_output,
+        "cached": counts["cache_read"],
+        "cacheWrite": counts["cache_write"],
+        "cost": priced["cost"],
+        "costByType": priced["byType"],
+        "rates": priced["rates"],
+        "tier": priced["tier"],
     }
 

@@ -92,6 +92,12 @@ def _build_golden_app_data(fake_debug_logs, tmp_cache_dir, fake_cli_db, fake_ote
         cli_block["dbPath"] = "<normalized-cli-db-path>"
     if isinstance(cli_block, dict) and cli_block.get("otelPaths"):
         cli_block["otelPaths"] = ["<normalized-otel-path>" for _ in cli_block["otelPaths"]]
+    # `cli["otel"]["paths"]` is the same tmp_path list under the OTel detail
+    # block and has to be pinned too, or the golden bakes in a machine-specific
+    # pytest temp directory.
+    otel_block = cli_block.get("otel") if isinstance(cli_block, dict) else None
+    if isinstance(otel_block, dict) and otel_block.get("paths"):
+        otel_block["paths"] = ["<normalized-otel-path>" for _ in otel_block["paths"]]
     return app_data
 
 

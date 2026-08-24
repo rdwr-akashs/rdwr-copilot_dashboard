@@ -12,6 +12,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+from cli_usage import empty_cli_payload
 from compact_files import compact_app_data_for_html
 from premium_requests import MULTIPLIERS, PLAN_ALLOWANCES
 
@@ -29,7 +30,7 @@ def _app_data_with_unified_and_premium():
         "sessions": [],
         "analysis": {},
         "periods": {},
-        "cli": {"available": False, "sessions": [], "byModel": [], "files": [], "tools": [], "otelAvailable": False, "otelPaths": [], "summary": {}},
+        "cli": empty_cli_payload(None),
         "unified": {
             "daily": [{"dayKey": "2026-01-01", "attributed": {}, "billed": {}, "premiumRequests": 0.0, "callCount": 1, "sessionCount": 1, "bySource": {}}],
             "monthly": [{"monthKey": "2026-01", "attributed": {}, "billed": {}, "premiumRequests": 0.0, "callCount": 1, "sessionCount": 1, "bySource": {}}],

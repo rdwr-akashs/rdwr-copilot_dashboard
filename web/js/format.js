@@ -190,6 +190,83 @@ import { STATE, isBilledMode } from './state.js';
       return `${formatCreditValue(cost)} credits`;
     }
 
+    // -------------------------------------------------------------------
+    // Cost provenance
+    //
+    // A CLI cost can come from three places, and the difference matters to
+    // anyone using this to reason about real spend:
+    //
+    //   "billed"   `assistant_usage_events.total_nano_aiu` — the charge GitHub
+    //              recorded for that call. Exact, by definition.
+    //   "rates"    the per-token-type rates GitHub applied, from
+    //              `token_details_json`. Exact: promotions, the auto-model
+    //              -selection discount and long-context tiers are all already
+    //              baked into those rates.
+    //   "estimate" priced from this repo's published-rate table because neither
+    //              of the above was recorded (an older CLI build, or VS Code
+    //              chat data, which exposes no billing figure at all). Cannot
+    //              see discounts or auto-routing, so it can be a few percent
+    //              off in either direction.
+    //
+    // "mixed" means one bucket contains calls from more than one of those, so
+    // it must not be labelled exact. Showing all four identically would be the
+    // worst outcome: a developer checking their spend could not tell which
+    // number is authoritative.
+    // -------------------------------------------------------------------
+
+    export const COST_SOURCE_INFO = {
+      billed: {
+        label: 'exact',
+        badgeClass: 'confidence-high',
+        title: "Exact: GitHub's own recorded charge for each call (total_nano_aiu), summed.",
+      },
+      rates: {
+        label: 'exact',
+        badgeClass: 'confidence-high',
+        title: 'Exact: priced from the per-token rates GitHub actually applied to each call (token_details_json), which already include promotions, discounts and long-context tiers.',
+      },
+      mixed: {
+        label: 'partly exact',
+        badgeClass: 'confidence-medium',
+        title: "Mixed: some calls carry GitHub's billed figure, others had to be estimated from published rates. Treat the total as approximate.",
+      },
+      estimate: {
+        label: 'estimated',
+        badgeClass: 'confidence-low',
+        title: 'Estimated from the published pricing table — no billed figure was recorded for these calls, so promotions and the 10% auto-model-selection discount are not reflected.',
+      },
+    };
+
+    export function costProvenance(row) {
+      const source = String((row && row.costSource) || 'estimate');
+      const info = COST_SOURCE_INFO[source] || COST_SOURCE_INFO.estimate;
+      const exact = row && typeof row.costExact === 'boolean'
+        ? row.costExact
+        : (source === 'billed' || source === 'rates');
+      const counts = (row && row.costSources) || {};
+      const breakdown = Object.keys(counts)
+        .map((key) => `${formatInteger(counts[key])} ${key}`)
+        .join(', ');
+      return {
+        source,
+        exact,
+        label: info.label,
+        badgeClass: info.badgeClass,
+        title: breakdown ? `${info.title} (calls by source: ${breakdown})` : info.title,
+      };
+    }
+
+    export function costProvenanceBadge(row) {
+      const p = costProvenance(row);
+      return `<span class="badge ${p.badgeClass}" title="${escapeHtml(p.title)}">${escapeHtml(p.label)}</span>`;
+    }
+
+    // "Billed cost" is only an honest label when the figure came from GitHub;
+    // otherwise say "Estimated cost" and mean it.
+    export function costLabel(row, noun = 'cost') {
+      return costProvenance(row).exact ? `Billed ${noun}` : `Estimated ${noun}`;
+    }
+
     export function formatDuration(ms) {
       const value = Number(ms || 0);
       if (!value) return '—';
@@ -284,7 +361,31 @@ import { STATE, isBilledMode } from './state.js';
         pct: normalizedTotal ? (row.input / normalizedTotal) * 100 : 0,
       }));
     }
-    export function calcModelCost(inputTokens, cachedTokens, outputTokens, pricing) {
-      const uncached = Math.max(0, inputTokens - cachedTokens);
-      return (uncached / 1e6) * pricing.input + (cachedTokens / 1e6) * pricing.cached + (outputTokens / 1e6) * pricing.output;
+    // Mirrors model_pricing.calculate_cost(). `inputTokens` is all-inclusive -
+    // it already contains the cached reads and cache writes - so those are
+    // carved out of it rather than charged on top, and cache writes bill at
+    // their own (higher) rate where the model has one. Above a model's
+    // long-context threshold the whole call bills at the tier rates instead.
+    //
+    // `cacheWriteTokens` defaults to 0 for the chat-side callers, whose
+    // telemetry has no cache-write counter; the CLI passes its real value.
+    export function calcModelCost(inputTokens, cachedTokens, outputTokens, pricing, cacheWriteTokens = 0) {
+      const cacheWrite = Math.max(0, Number(cacheWriteTokens || 0));
+      const cached = Math.max(0, Number(cachedTokens || 0));
+      const uncached = Math.max(0, Number(inputTokens || 0) - cached - cacheWrite);
+      const tier = pricing.longContext;
+      const rates = tier && Number(inputTokens || 0) > Number(tier.threshold || 0)
+        ? {
+          input: tier.input,
+          cached: tier.cached,
+          // Absent on a long-context row means the model does not price cache
+          // writes at all - keep the (zero) default rather than inventing one.
+          cacheWrite: tier.cacheWrite === undefined ? (pricing.cacheWrite || 0) : tier.cacheWrite,
+          output: tier.output,
+        }
+        : { input: pricing.input, cached: pricing.cached, cacheWrite: pricing.cacheWrite || 0, output: pricing.output };
+      return (uncached / 1e6) * Number(rates.input || 0)
+        + (cached / 1e6) * Number(rates.cached || 0)
+        + (cacheWrite / 1e6) * Number(rates.cacheWrite || 0)
+        + (Number(outputTokens || 0) / 1e6) * Number(rates.output || 0);
     }

@@ -24,6 +24,7 @@ except Exception:  # pragma: no cover - non-Linux platforms
     fcntl = None
 
 from dashboard_utils import *
+from cli_usage import empty_cli_payload
 from token_usage import new_token_block
 
 DEFAULT_CACHE_VERIFY_SECONDS = max(30, env_int("COPILOT_DASHBOARD_CACHE_VERIFY_SECONDS", 300))
@@ -251,7 +252,7 @@ def compact_app_data_for_html(app_data: dict[str, Any]) -> dict[str, Any]:
     "sessions": [compact_session_for_ui(session) for session in app_data.get("sessions", [])],
     "analysis": app_data.get("analysis", {}),
     "periods": app_data.get("periods", {}),
-    "cli": app_data.get("cli", {"available": False, "sessions": [], "byModel": [], "files": [], "tools": [], "otelAvailable": False, "otelPaths": [], "summary": {}}),
+    "cli": app_data.get("cli") or empty_cli_payload(None),
     # Unified backend usage model + premium-request/budget accounting
     # (usage_model.py / premium_requests.py). Additive: safe empty defaults
     # keep older-shaped app_data from breaking this pass-through.

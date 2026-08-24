@@ -1,13 +1,37 @@
 from __future__ import annotations
 
 import collections
+import glob
 import json
 import os
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
-from model_pricing import calculate_cost
+from model_pricing import (
+    AIU_USD,
+    TOKEN_TYPES,
+    calculate_cost,
+    cost_from_token_counts,
+    nano_aiu_to_usd,
+    split_prompt_tokens,
+)
+
+# How a cost figure was arrived at, best first. The CLI is the only source in
+# this repo that can be exact, because `assistant_usage_events` records what
+# GitHub actually charged rather than what a rate table implies.
+#
+#   billed   - `total_nano_aiu`, GitHub's own per-call charge. Exact.
+#   rates    - priced from the per-token-type rates in `token_details_json`,
+#              i.e. the rates GitHub applied to that specific call (promotions,
+#              auto-select discount and long-context tier already baked in).
+#              Exact to the cent.
+#   estimate - priced from the published table in model_pricing.py, for rows
+#              written by a CLI build that predates these columns.
+COST_SOURCE_BILLED = "billed"
+COST_SOURCE_RATES = "rates"
+COST_SOURCE_ESTIMATE = "estimate"
+EXACT_COST_SOURCES = (COST_SOURCE_BILLED, COST_SOURCE_RATES)
 
 
 def _month_key_from_epoch_ms(ts_ms: float | int | None) -> str | None:
@@ -28,29 +52,208 @@ def _day_key_from_epoch_ms(ts_ms: float | int | None) -> str | None:
         return None
 
 
+def _parse_token_details(raw: str | None) -> dict[str, Any] | None:
+    """Decode one `assistant_usage_events.token_details_json` value.
+
+    The CLI writes one entry per billed token category, carrying both the token
+    count and the rate GitHub charged for it:
+
+        [{"batchSize": 1000000, "costPerBatch": 200000000000,
+          "tokenCount": 2, "tokenType": "input"}, ...]
+
+    `costPerBatch` is in nano AIU per `batchSize` tokens. Summing
+    `tokenCount / batchSize * costPerBatch` over the entries reproduces
+    `total_nano_aiu` exactly, so these are the real rates for the call - not
+    the published list price, which may differ by a promotion, the auto model
+    selection discount, or a long-context tier.
+
+    Returns {"counts", "rates", "cost"} - rates in USD per 1M tokens, cost in
+    USD - or None when the column is absent or unusable.
+    """
+    if not raw:
+        return None
+    try:
+        entries = json.loads(raw)
+    except Exception:
+        return None
+    if not isinstance(entries, list):
+        return None
+
+    counts: dict[str, float] = {}
+    rates: dict[str, float] = {}
+    cost = 0.0
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        token_type = str(entry.get("tokenType") or "")
+        if token_type not in TOKEN_TYPES:
+            continue
+        try:
+            batch_size = float(entry.get("batchSize") or 0.0)
+            cost_per_batch = float(entry.get("costPerBatch") or 0.0)
+            tokens = float(entry.get("tokenCount") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if batch_size <= 0:
+            continue
+        counts[token_type] = counts.get(token_type, 0.0) + tokens
+        rates[token_type] = nano_aiu_to_usd(cost_per_batch) / batch_size * 1_000_000.0
+        cost += nano_aiu_to_usd(tokens / batch_size * cost_per_batch)
+
+    if not counts:
+        return None
+    return {"counts": counts, "rates": rates, "cost": cost}
+
+
+def _event_cost(
+    model_name: str,
+    prompt_tokens: float,
+    output_tokens: float,
+    cache_read_tokens: float,
+    cache_write_tokens: float,
+    nano_aiu: float | int | None,
+    token_details_json: str | None,
+) -> dict[str, Any]:
+    """Cost one usage event, preferring GitHub's billed figure over any estimate.
+
+    Returns {"cost", "byType", "counts", "source"}. `counts` holds the billed
+    token categories (so `counts["input"]` is the uncached prompt remainder),
+    and `byType` splits the cost across those same categories so the UI can
+    show where the money went without re-deriving it from rates.
+    """
+    detail = _parse_token_details(token_details_json)
+
+    if detail is not None:
+        counts = dict(detail["counts"])
+        by_type = cost_from_token_counts(counts, model_name, rates=detail["rates"])["byType"]
+        cost = detail["cost"]
+        source = COST_SOURCE_RATES
+    else:
+        counts = split_prompt_tokens(prompt_tokens, cache_read_tokens, cache_write_tokens)
+        counts["output"] = float(output_tokens or 0.0)
+        priced = calculate_cost(
+            prompt_tokens,
+            output_tokens,
+            cache_read_tokens,
+            model_name,
+            cache_write_tokens=cache_write_tokens,
+        )
+        by_type = priced["costByType"]
+        cost = priced["cost"]
+        source = COST_SOURCE_ESTIMATE
+
+    # `total_nano_aiu` is the charge itself, so it wins outright. The component
+    # split stays proportional to whatever we could price, scaled to agree with
+    # the billed total, so `sum(byType) == cost` always holds.
+    if nano_aiu is not None:
+        billed = nano_aiu_to_usd(nano_aiu)
+        if cost > 0:
+            scale = billed / cost
+            by_type = {key: value * scale for key, value in by_type.items()}
+        elif billed:
+            # Nothing to scale (every rate we know resolved to zero) but GitHub
+            # still charged for the call, so split the charge across the token
+            # counts we do have rather than reporting a total that its own
+            # components contradict.
+            weights = {key: max(0.0, float(counts.get(key) or 0.0)) for key in TOKEN_TYPES}
+            total_weight = sum(weights.values())
+            if total_weight:
+                by_type = {key: billed * weight / total_weight for key, weight in weights.items()}
+            else:
+                by_type = {key: (billed if key == "output" else 0.0) for key in TOKEN_TYPES}
+        cost = billed
+        source = COST_SOURCE_BILLED
+
+    counts.setdefault("output", float(output_tokens or 0.0))
+    return {
+        "cost": cost,
+        "byType": {key: float(by_type.get(key) or 0.0) for key in TOKEN_TYPES},
+        "counts": {key: float(counts.get(key) or 0.0) for key in TOKEN_TYPES},
+        "source": source,
+    }
+
+
+def _new_cost_accumulator() -> dict[str, Any]:
+    """Zeroed cost/token accumulator shared by the session, model and period rollups."""
+    return {
+        "cost": 0.0,
+        "costByType": {key: 0.0 for key in TOKEN_TYPES},
+        "sources": {COST_SOURCE_BILLED: 0, COST_SOURCE_RATES: 0, COST_SOURCE_ESTIMATE: 0},
+    }
+
+
+def _add_cost(target: dict[str, Any], priced: dict[str, Any]) -> None:
+    """Fold one priced event (or one already-rolled-up bucket) into `target`."""
+    target["cost"] += float(priced.get("cost") or 0.0)
+    for key, value in (priced.get("costByType") or priced.get("byType") or {}).items():
+        if key in target["costByType"]:
+            target["costByType"][key] += float(value or 0.0)
+    source = priced.get("source")
+    if source:
+        target["sources"][source] = target["sources"].get(source, 0) + 1
+    # `sources` on a raw accumulator, `costSources` once _cost_fields has
+    # rendered it onto a payload row - period rollups fold the latter.
+    for key, count in (priced.get("sources") or priced.get("costSources") or {}).items():
+        target["sources"][key] = target["sources"].get(key, 0) + int(count or 0)
+
+
+def _cost_fields(accumulated: dict[str, Any]) -> dict[str, Any]:
+    """Render an accumulator into the payload keys the front-end reads.
+
+    `costSource` is the single source when every call in the bucket agrees,
+    "mixed" when they do not, so the UI can label a figure exact without
+    claiming exactness for a bucket that fell back for some of its calls.
+    """
+    sources = {key: int(value or 0) for key, value in (accumulated.get("sources") or {}).items() if value}
+    used = sorted(sources, key=lambda key: sources[key], reverse=True)
+    cost = float(accumulated.get("cost") or 0.0)
+    return {
+        "cost": cost,
+        "costByType": {key: float(value or 0.0) for key, value in (accumulated.get("costByType") or {}).items()},
+        "costSource": (used[0] if len(used) == 1 else "mixed") if used else COST_SOURCE_ESTIMATE,
+        "costSources": sources,
+        "costExact": bool(used) and all(key in EXACT_COST_SOURCES for key in used),
+        "credits": cost / AIU_USD,
+    }
+
+
 def _build_cli_period_bundle(sessions_subset: list[dict[str, Any]]) -> dict[str, Any]:
     """Build a {"summary", "byModel"} bundle for a subset of CLI sessions_out rows.
 
     Mirrors the shape of the chat pipeline's period bundles closely enough
     for the CLI tab to support "this month" / "all time" filtering, without
     touching any existing `cli["..."]` key.
+
+    Costs are SUMMED from the per-call figures already on those rows, never
+    re-derived from the aggregated token counts: the exact cost of a bucket is
+    the sum of what GitHub charged for each call in it, and re-pricing a
+    month's worth of tokens in one go would throw that away (and silently mix
+    tiers, promotions and discounts that differ call to call).
     """
-    model_totals: dict[str, dict[str, float]] = collections.defaultdict(
-        lambda: {"input": 0.0, "output": 0.0, "cached": 0.0, "cacheWrite": 0.0, "calls": 0, "sessionIds": set()}
+    model_totals: dict[str, dict[str, Any]] = collections.defaultdict(
+        lambda: {
+            "input": 0.0, "inputBillable": 0.0, "output": 0.0, "cached": 0.0,
+            "cacheWrite": 0.0, "calls": 0, "sessionIds": set(),
+            **_new_cost_accumulator(),
+        }
     )
-    total_cost = 0.0
+    totals = _new_cost_accumulator()
     total_input = 0.0
+    total_input_billable = 0.0
     total_output = 0.0
     total_cached = 0.0
+    total_cache_write = 0.0
     total_calls = 0
     total_tool_calls = 0
     file_paths: set[str] = set()
 
     for session in sessions_subset:
-        total_cost += float(session.get("cost", 0.0) or 0.0)
+        _add_cost(totals, session)
         total_input += float(session.get("input", 0.0) or 0.0)
+        total_input_billable += float(session.get("inputBillable", 0.0) or 0.0)
         total_output += float(session.get("output", 0.0) or 0.0)
         total_cached += float(session.get("cached", 0.0) or 0.0)
+        total_cache_write += float(session.get("cacheWrite", 0.0) or 0.0)
         total_calls += int(session.get("callCount", 0) or 0)
         total_tool_calls += sum(int(tool.get("calls", 0) or 0) for tool in session.get("tools", []) or [])
         for file_row in session.get("files", []) or []:
@@ -61,28 +264,31 @@ def _build_cli_period_bundle(sessions_subset: list[dict[str, Any]]) -> dict[str,
             model_name = str(row.get("model") or "unknown")
             bucket = model_totals[model_name]
             bucket["input"] += float(row.get("input", 0.0) or 0.0)
+            bucket["inputBillable"] += float(row.get("inputBillable", 0.0) or 0.0)
             bucket["output"] += float(row.get("output", 0.0) or 0.0)
             bucket["cached"] += float(row.get("cached", 0.0) or 0.0)
             bucket["cacheWrite"] += float(row.get("cacheWrite", 0.0) or 0.0)
             bucket["calls"] += int(row.get("calls", 0) or 0)
             bucket["sessionIds"].add(session.get("id"))
+            _add_cost(bucket, row)
 
     by_model = []
     for model_name, bucket in model_totals.items():
-        cost_info = calculate_cost(bucket["input"], bucket["output"], bucket["cached"], model_name)
         by_model.append({
             "model": model_name,
             "calls": bucket["calls"],
             "sessionCount": len(bucket["sessionIds"]),
             "input": bucket["input"],
-            "uncached": max(0.0, bucket["input"] - bucket["cached"]),
+            "inputBillable": bucket["inputBillable"],
+            "uncached": bucket["inputBillable"],
             "cached": bucket["cached"],
             "cacheWrite": bucket["cacheWrite"],
             "output": bucket["output"],
-            "cost": cost_info["cost"],
+            **_cost_fields(bucket),
         })
     by_model.sort(key=lambda row: row["cost"], reverse=True)
 
+    cost_fields = _cost_fields(totals)
     return {
         "summary": {
             "sessionCount": len(sessions_subset),
@@ -90,8 +296,15 @@ def _build_cli_period_bundle(sessions_subset: list[dict[str, Any]]) -> dict[str,
             "totalInput": total_input,
             "totalOutput": total_output,
             "totalCached": total_cached,
-            "totalUncached": max(0.0, total_input - total_cached),
-            "totalCost": total_cost,
+            "totalCacheWrite": total_cache_write,
+            "totalUncached": total_input_billable,
+            "totalInputBillable": total_input_billable,
+            "totalCost": cost_fields["cost"],
+            "totalCredits": cost_fields["credits"],
+            "costByType": cost_fields["costByType"],
+            "costSource": cost_fields["costSource"],
+            "costSources": cost_fields["costSources"],
+            "costExact": cost_fields["costExact"],
             "fileCount": len(file_paths),
             "toolCallCount": total_tool_calls,
         },
@@ -109,18 +322,47 @@ def default_cli_db_path() -> str | None:
 
 
 def default_cli_otel_paths() -> list[str]:
-    """Return the CLI's OpenTelemetry file-exporter JSONL path(s), if configured.
+    """Return the CLI's OpenTelemetry file-exporter JSONL path(s), if any exist.
 
-    The CLI only writes this file when OTel export is enabled (see
-    `copilot help monitoring`), typically via the `COPILOT_OTEL_FILE_EXPORTER_PATH`
-    environment variable. When present, it carries official OTel GenAI spans
-    (chat calls, execute_tool calls) with exact per-call cost/token/duration
-    data — a stronger, structured complement to session-store.db.
+    The CLI writes these only when OTel export is enabled with the `file`
+    exporter (see `copilot help monitoring`), configured via
+    `COPILOT_OTEL_FILE_EXPORTER_PATH`. With the default `otlp-http` exporter the
+    data goes to a collector instead and none of it lands on disk.
+
+    The export carries OTel GenAI *spans* (`chat`, `execute_tool`) and
+    *metrics* (token counters and, where the build emits them, spend counters).
+    It is an enrichment and cross-check layer: per-call cost comes from
+    session-store.db, which records what GitHub actually billed.
+
+    Accepts a file, a directory, a glob, or several of those separated by the
+    platform path separator, because the exporter may be pointed at a rotating
+    directory rather than one file.
     """
     override = os.environ.get("COPILOT_OTEL_FILE_EXPORTER_PATH")
-    if override and os.path.isfile(override):
-        return [override]
-    return []
+    candidates = override.split(os.pathsep) if override else []
+    candidates.append(os.path.join(os.path.expanduser("~"), ".copilot", "otel"))
+
+    paths: list[str] = []
+    for candidate in candidates:
+        candidate = (candidate or "").strip().strip('"')
+        if not candidate:
+            continue
+        if os.path.isfile(candidate):
+            paths.append(candidate)
+        elif os.path.isdir(candidate):
+            paths.extend(
+                sorted(
+                    os.path.join(candidate, name)
+                    for name in os.listdir(candidate)
+                    if name.endswith((".jsonl", ".json", ".log"))
+                    and os.path.isfile(os.path.join(candidate, name))
+                )
+            )
+        elif any(char in candidate for char in "*?["):
+            paths.extend(sorted(path for path in glob.glob(candidate) if os.path.isfile(path)))
+
+    # Preserve discovery order while dropping duplicates.
+    return list(dict.fromkeys(paths))
 
 
 def _otel_timestamp_to_epoch_ms(value: Any) -> float:
@@ -132,12 +374,196 @@ def _otel_timestamp_to_epoch_ms(value: Any) -> float:
         return 0.0
 
 
-def parse_cli_otel_files(paths: list[str] | None) -> dict[str, Any]:
-    """Parse CLI OTel file-exporter JSONL export(s) for `execute_tool` span telemetry.
+# OTel attribute keys that identify the conversation a record belongs to. The
+# GenAI convention is `gen_ai.conversation.id`; the CLI also stamps its own
+# session id on some records.
+_OTEL_SESSION_KEYS = (
+    "gen_ai.conversation.id",
+    "gen_ai.session.id",
+    "copilot.session.id",
+    "session.id",
+    "session_id",
+)
 
-    Returns {"available", "paths", "tools": [...], "toolsBySession": {session_id: [...]}}.
-    Silently skips missing/unreadable files or malformed lines — this is a
-    best-effort enrichment layer, not the primary CLI data source.
+# Attribute keys naming the billed token category of a token data point, and
+# the mapping from the values they carry onto TOKEN_TYPES. `gen_ai.token.type`
+# is the convention's key; the values vary by emitter, so both the GenAI
+# spellings ("input"/"output") and the provider spellings this repo already
+# uses ("cache_read"/"cache_write") are accepted.
+_OTEL_TOKEN_TYPE_KEYS = ("gen_ai.token.type", "token.type", "type", "kind")
+_OTEL_TOKEN_TYPE_ALIASES = {
+    "input": "input",
+    "prompt": "input",
+    "uncached": "input",
+    "uncached_input": "input",
+    "output": "output",
+    "completion": "output",
+    "cache_read": "cache_read",
+    "cacheread": "cache_read",
+    "cached": "cache_read",
+    "cache_read_input": "cache_read",
+    "cache_write": "cache_write",
+    "cachewrite": "cache_write",
+    "cache_creation": "cache_write",
+    "cache_write_input": "cache_write",
+    "reasoning": "output",
+}
+
+# The same aliases, longest-marker-first, for the case where the category is
+# baked into the instrument name instead of carried as an attribute. Order is
+# load-bearing: "cache_read_input_tokens" contains "input", so a shorter marker
+# checked first would file cache reads as uncached input.
+_OTEL_TOKEN_TYPE_NAME_MARKERS = sorted(_OTEL_TOKEN_TYPE_ALIASES.items(), key=lambda item: len(item[0]), reverse=True)
+
+# Span attributes carrying per-call token counts, per the GenAI conventions.
+_OTEL_SPAN_TOKEN_ATTRS = {
+    "gen_ai.usage.input_tokens": "input",
+    "gen_ai.usage.prompt_tokens": "input",
+    "gen_ai.usage.output_tokens": "output",
+    "gen_ai.usage.completion_tokens": "output",
+    "gen_ai.usage.cache_read_input_tokens": "cache_read",
+    "gen_ai.usage.cached_input_tokens": "cache_read",
+    "gen_ai.usage.cache_creation_input_tokens": "cache_write",
+    "gen_ai.usage.cache_write_input_tokens": "cache_write",
+}
+
+# Units, lower-cased, that a spend instrument or attribute may be denominated
+# in, mapped to their USD value. Anything else is reported raw and never
+# silently treated as money.
+_OTEL_SPEND_UNITS = {
+    "usd": 1.0,
+    "{usd}": 1.0,
+    "us_dollar": 1.0,
+    "credit": AIU_USD,
+    "{credit}": AIU_USD,
+    "credits": AIU_USD,
+    "aiu": AIU_USD,
+    "{aiu}": AIU_USD,
+    "nano_aiu": nano_aiu_to_usd(1),
+    "{nano_aiu}": nano_aiu_to_usd(1),
+    "naiu": nano_aiu_to_usd(1),
+}
+
+
+def _otel_attributes(raw: Any) -> dict[str, Any]:
+    """Normalise an OTel attribute collection into a flat dict.
+
+    Exporters emit these either as a plain object or as the protobuf-shaped
+    list of `{"key": ..., "value": {"stringValue": ...}}` entries, so both are
+    accepted.
+    """
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, list):
+        return {}
+    flat: dict[str, Any] = {}
+    for item in raw:
+        if not isinstance(item, dict) or "key" not in item:
+            continue
+        value = item.get("value")
+        if isinstance(value, dict):
+            for wrapper in ("stringValue", "intValue", "doubleValue", "boolValue", "asString", "asInt", "asDouble"):
+                if wrapper in value:
+                    value = value[wrapper]
+                    break
+        flat[str(item["key"])] = value
+    return flat
+
+
+def _otel_session_id(attrs: dict[str, Any]) -> str | None:
+    for key in _OTEL_SESSION_KEYS:
+        value = attrs.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+def _otel_number(value: Any) -> float | None:
+    """Coerce an OTel data-point value to a float, or None if it is not numeric."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _otel_data_points(record: dict[str, Any]) -> list[dict[str, Any]]:
+    """Pull the data-point list out of a metric record, whatever it is called.
+
+    File exporters disagree on the envelope: the points may sit directly under
+    the record, or nested under `sum`/`gauge`/`histogram`, and the key may be
+    `dataPoints`, `data_points` or `points`.
+    """
+    containers = [record]
+    for key in ("sum", "gauge", "histogram", "exponentialHistogram", "data"):
+        nested = record.get(key)
+        if isinstance(nested, dict):
+            containers.append(nested)
+    for container in containers:
+        for key in ("dataPoints", "data_points", "points"):
+            points = container.get(key)
+            if isinstance(points, list):
+                return [point for point in points if isinstance(point, dict)]
+    return []
+
+
+def _otel_point_value(point: dict[str, Any]) -> float | None:
+    """Extract the numeric value of one data point.
+
+    Counters expose `value`/`asDouble`/`asInt`; histograms only carry `sum` and
+    `count`, and for token or spend totals the sum is the quantity we want.
+    """
+    for key in ("value", "asDouble", "asInt", "as_double", "as_int", "sum"):
+        number = _otel_number(point.get(key))
+        if number is not None:
+            return number
+    return None
+
+
+def _otel_metric_kind(name: str) -> str | None:
+    """Classify an instrument by name: "token", "spend", or None for neither.
+
+    Matching is on the name because instrument names differ across CLI builds
+    (and are not in the published docs). Whatever the build emits, every
+    instrument seen is reported back in `instruments` so the dashboard can show
+    what was actually available rather than guessing silently.
+    """
+    lowered = name.lower()
+    if "token" in lowered:
+        return "token"
+    if any(marker in lowered for marker in ("aiu", "credit", "cost", "spend", "billing", "charge")):
+        return "spend"
+    return None
+
+
+def parse_cli_otel_files(paths: list[str] | None) -> dict[str, Any]:
+    """Parse CLI OTel file-exporter JSONL export(s): `execute_tool` and chat spans, plus metrics.
+
+    Returns, in addition to the original
+    {"available", "paths", "tools", "toolsBySession"}:
+
+      "tokensBySession"  per-conversation billed token counts read off chat
+                         spans and per-session token metrics
+      "tokens"           those counts summed
+      "spend"            {"usd", "instrument", "unit", "raw"} when the export
+                         carries a spend instrument in a unit that converts to
+                         money, else {"usd": None, ...}
+      "instruments"      every metric instrument seen, with unit and total, so
+                         the dashboard can report what the export actually
+                         offers instead of failing silently on a build whose
+                         instrument names differ
+      "recordCounts"     {"span", "metric", "other"} record tallies
+
+    Nothing here overrides cost: `assistant_usage_events.total_nano_aiu` is
+    what GitHub charged, so OTel serves as coverage for tool timings and as an
+    independent cross-check (see `otelReconciliation` in the payload). Missing
+    or unreadable files and malformed lines are skipped - this stays a
+    best-effort layer, never a hard dependency.
     """
     global_tools: dict[str, dict[str, Any]] = collections.defaultdict(
         lambda: {"calls": 0, "durationMs": 0.0, "sessionIds": set()}
@@ -145,8 +571,29 @@ def parse_cli_otel_files(paths: list[str] | None) -> dict[str, Any]:
     tools_by_session: dict[str, dict[str, dict[str, Any]]] = collections.defaultdict(
         lambda: collections.defaultdict(lambda: {"calls": 0, "durationMs": 0.0})
     )
+    tokens_by_session: dict[str, dict[str, float]] = collections.defaultdict(
+        lambda: {key: 0.0 for key in TOKEN_TYPES}
+    )
+    instruments: dict[str, dict[str, Any]] = {}
+    spend_totals: dict[str, dict[str, Any]] = {}
+    record_counts = {"span": 0, "metric": 0, "other": 0}
     parsed_any = False
     used_paths: list[str] = []
+
+    token_totals = {key: 0.0 for key in TOKEN_TYPES}
+
+    def note_tokens(session_id: str | None, token_type: str, amount: float) -> None:
+        """Record a billed token count, per session when known and always in total.
+
+        A data point without a conversation attribute still tells us how many
+        tokens the export saw, and dropping it would make the OTel-vs-DB
+        reconciliation look like missing usage rather than missing labelling.
+        """
+        if token_type not in TOKEN_TYPES or not amount:
+            return
+        token_totals[token_type] += float(amount)
+        if session_id:
+            tokens_by_session[session_id][token_type] += float(amount)
 
     for path in paths or []:
         if not path or not os.path.isfile(path):
@@ -161,29 +608,87 @@ def parse_cli_otel_files(paths: list[str] | None) -> dict[str, Any]:
                         entry = json.loads(line)
                     except Exception:
                         continue
-                    if entry.get("type") != "span":
+                    if not isinstance(entry, dict):
                         continue
+
+                    record_type = str(entry.get("type") or "")
                     name = str(entry.get("name") or "")
-                    if not name.startswith("execute_tool"):
+                    attrs = _otel_attributes(entry.get("attributes"))
+
+                    if record_type == "span":
+                        record_counts["span"] += 1
+                        parsed_any = True
+                        used_paths.append(path)
+                        session_id = _otel_session_id(attrs)
+                        duration_ms = max(
+                            0.0,
+                            _otel_timestamp_to_epoch_ms(entry.get("endTime")) - _otel_timestamp_to_epoch_ms(entry.get("startTime")),
+                        )
+
+                        if name.startswith("execute_tool"):
+                            tool_name = attrs.get("gen_ai.tool.name") or name[len("execute_tool "):].strip() or "unknown"
+                            gtotal = global_tools[tool_name]
+                            gtotal["calls"] += 1
+                            gtotal["durationMs"] += duration_ms
+                            if session_id:
+                                gtotal["sessionIds"].add(session_id)
+                                sbucket = tools_by_session[session_id][tool_name]
+                                sbucket["calls"] += 1
+                                sbucket["durationMs"] += duration_ms
+                            continue
+
+                        # Any other span may still carry GenAI usage attributes
+                        # (`chat <model>` spans do).
+                        for attr_key, token_type in _OTEL_SPAN_TOKEN_ATTRS.items():
+                            amount = _otel_number(attrs.get(attr_key))
+                            if amount is not None:
+                                note_tokens(session_id, token_type, amount)
                         continue
-                    attrs = entry.get("attributes") or {}
-                    tool_name = attrs.get("gen_ai.tool.name") or name[len("execute_tool "):].strip() or "unknown"
-                    conversation_id = attrs.get("gen_ai.conversation.id")
-                    duration_ms = max(
-                        0.0,
-                        _otel_timestamp_to_epoch_ms(entry.get("endTime")) - _otel_timestamp_to_epoch_ms(entry.get("startTime")),
-                    )
+
+                    if record_type != "metric":
+                        record_counts["other"] += 1
+                        continue
+
+                    record_counts["metric"] += 1
                     parsed_any = True
                     used_paths.append(path)
+                    unit = str(entry.get("unit") or entry.get("units") or "")
+                    kind = _otel_metric_kind(name)
+                    points = _otel_data_points(entry)
 
-                    gtotal = global_tools[tool_name]
-                    gtotal["calls"] += 1
-                    gtotal["durationMs"] += duration_ms
-                    if conversation_id:
-                        gtotal["sessionIds"].add(conversation_id)
-                        sbucket = tools_by_session[conversation_id][tool_name]
-                        sbucket["calls"] += 1
-                        sbucket["durationMs"] += duration_ms
+                    instrument = instruments.setdefault(
+                        name, {"instrument": name, "unit": unit, "kind": kind, "points": 0, "total": 0.0}
+                    )
+
+                    for point in points:
+                        value = _otel_point_value(point)
+                        if value is None:
+                            continue
+                        point_attrs = {**attrs, **_otel_attributes(point.get("attributes"))}
+                        instrument["points"] += 1
+                        instrument["total"] += value
+
+                        if kind == "token":
+                            raw_type = next(
+                                (str(point_attrs[key]) for key in _OTEL_TOKEN_TYPE_KEYS if point_attrs.get(key)),
+                                "",
+                            )
+                            token_type = _OTEL_TOKEN_TYPE_ALIASES.get(raw_type.lower().replace("-", "_"))
+                            if token_type is None:
+                                # Fall back to the instrument name when the
+                                # category is baked into it instead of carried
+                                # as an attribute.
+                                token_type = next(
+                                    (alias for marker, alias in _OTEL_TOKEN_TYPE_NAME_MARKERS if marker in name.lower()),
+                                    None,
+                                )
+                            note_tokens(_otel_session_id(point_attrs), token_type or "", value)
+                        elif kind == "spend":
+                            point_unit = str(point_attrs.get("unit") or unit or "").lower()
+                            bucket = spend_totals.setdefault(
+                                name, {"instrument": name, "unit": point_unit or unit, "raw": 0.0}
+                            )
+                            bucket["raw"] += value
         except Exception:
             continue
 
@@ -219,11 +724,45 @@ def parse_cli_otel_files(paths: list[str] | None) -> dict[str, Any]:
         for session_id, tools in tools_by_session.items()
     }
 
+    tokens_by_session_out = {
+        session_id: dict(counts)
+        for session_id, counts in tokens_by_session.items()
+        if any(counts.values())
+    }
+    # Only convert a spend instrument to money when its unit says what it is.
+    # An unrecognised unit is reported raw rather than guessed at, because a
+    # wrong factor here would be indistinguishable from a real cost.
+    spend: dict[str, Any] = {"usd": None, "instrument": None, "unit": None, "raw": None}
+    for bucket in spend_totals.values():
+        factor = _OTEL_SPEND_UNITS.get(str(bucket.get("unit") or "").lower())
+        if factor is None:
+            continue
+        spend = {
+            "usd": float(bucket["raw"]) * factor,
+            "instrument": bucket["instrument"],
+            "unit": bucket["unit"],
+            "raw": float(bucket["raw"]),
+        }
+        break
+    if spend["instrument"] is None and spend_totals:
+        first = sorted(spend_totals)[0]
+        spend = {
+            "usd": None,
+            "instrument": spend_totals[first]["instrument"],
+            "unit": spend_totals[first]["unit"],
+            "raw": float(spend_totals[first]["raw"]),
+        }
+
     return {
         "available": parsed_any,
         "paths": sorted(set(used_paths)) or [p for p in (paths or []) if p],
         "tools": tools_out,
         "toolsBySession": tools_by_session_out,
+        "tokensBySession": tokens_by_session_out,
+        "tokens": token_totals,
+        "spend": spend,
+        "instruments": sorted(instruments.values(), key=lambda row: row["instrument"]),
+        "recordCounts": record_counts,
     }
 
 
@@ -239,6 +778,95 @@ def _iso_to_epoch_ms(value: str | None) -> float:
         return 0.0
 
 
+def _reconcile_otel(
+    otel_data: dict[str, Any],
+    db_tokens: dict[str, float],
+    db_cost_usd: float,
+) -> dict[str, Any]:
+    """Cross-check the OTel export against the billed figures from the DB.
+
+    Two independent records of the same sessions should agree; where they do
+    not, the delta is worth surfacing rather than hiding, because it means one
+    side is incomplete (an export that started mid-session, a session the
+    collector never received, or a DB row written by a build that did not yet
+    record billing). The DB stays authoritative either way - this only reports.
+
+    Returns {"available", "tokens": {type: {...}}, "spend": {...}} with an
+    absolute and relative delta per compared quantity.
+    """
+    if not otel_data.get("available"):
+        return {"available": False, "tokens": {}, "spend": {}}
+
+    def delta(otel_value: float | None, db_value: float | None) -> dict[str, Any]:
+        otel_number = None if otel_value is None else float(otel_value)
+        db_number = None if db_value is None else float(db_value)
+        row: dict[str, Any] = {"otel": otel_number, "db": db_number, "delta": None, "deltaPct": None}
+        if otel_number is None or db_number is None:
+            return row
+        row["delta"] = otel_number - db_number
+        if db_number:
+            row["deltaPct"] = (otel_number - db_number) / db_number * 100.0
+        return row
+
+    otel_tokens = otel_data.get("tokens") or {}
+    tokens = {
+        token_type: delta(otel_tokens.get(token_type), db_tokens.get(token_type))
+        for token_type in TOKEN_TYPES
+        if otel_tokens.get(token_type)
+    }
+    spend_usd = (otel_data.get("spend") or {}).get("usd")
+    return {
+        "available": True,
+        "tokens": tokens,
+        "spend": {
+            **delta(spend_usd, db_cost_usd),
+            "instrument": (otel_data.get("spend") or {}).get("instrument"),
+            "unit": (otel_data.get("spend") or {}).get("unit"),
+        },
+    }
+
+
+def empty_cli_payload(db_path: str | None) -> dict[str, Any]:
+    """The `cli` block for "no usable session-store.db", in the full shape.
+
+    Every key the front-end and the compact-cache writer read has to be present
+    even when there is nothing to report, so they can render "unavailable"
+    instead of tripping over a missing key.
+    """
+    return {
+        "available": False,
+        "dbPath": db_path,
+        "sessions": [],
+        "byModel": [],
+        "files": [],
+        "tools": [],
+        "otelAvailable": False,
+        "otelPaths": [],
+        "otel": {},
+        "otelReconciliation": {},
+        "summary": {},
+        "periods": {
+            "default": "monthly",
+            "labels": {},
+            "allTime": {"summary": {}, "byModel": []},
+            "monthly": {"monthKey": None, "summary": {}, "byModel": []},
+        },
+    }
+
+
+# Columns added to `assistant_usage_events` by later CLI builds. Selected
+# separately so an older DB without them still loads (and falls back to
+# published-rate estimates) instead of raising OperationalError.
+_BILLING_COLUMNS = ("total_nano_aiu", "request_multiplier", "token_details_json")
+
+
+def _available_columns(cursor: sqlite3.Cursor, table: str) -> set[str]:
+    try:
+        return {str(row[1]) for row in cursor.execute(f"PRAGMA table_info({table})")}
+    except Exception:
+        return set()
+
+
 def build_cli_dashboard_data(
     db_path: str | None = None,
     otel_log_paths: list[str] | None = None,
@@ -250,7 +878,16 @@ def build_cli_dashboard_data(
     debug-log pipeline: {"available": bool, "dbPath", "sessions": [...],
     "byModel": [...], "tools": [...], "otelAvailable", "summary": {...}}.
     If an OTel JSONL export is available (see `default_cli_otel_paths`), it
-    enriches sessions and the summary with real per-tool call telemetry.
+    enriches sessions and the summary with real per-tool call telemetry, and
+    `otelReconciliation` cross-checks its token/spend counters against the DB.
+
+    COST IS EXACT HERE, not estimated. `assistant_usage_events` records what
+    GitHub billed for each call - `total_nano_aiu`, plus the rates it applied in
+    `token_details_json` - so every cost figure below is summed from those
+    per-call charges rather than re-derived from a rate table. `costSource` /
+    `costExact` on each row say which basis was used, and the published table in
+    model_pricing.py only backstops rows written before those columns existed.
+    See `_event_cost`.
 
     `now_ms` is an optional epoch-milliseconds time-injection seam for the
     "current calendar month" the `periods.monthly` bucket is built from
@@ -261,8 +898,7 @@ def build_cli_dashboard_data(
     now = datetime.fromtimestamp(float(now_ms) / 1000.0) if now_ms else datetime.now()
     resolved_db_path = db_path or default_cli_db_path()
     if not resolved_db_path or not os.path.isfile(resolved_db_path):
-        return {"available": False, "dbPath": resolved_db_path, "sessions": [], "byModel": [], "files": [], "tools": [], "otelAvailable": False, "otelPaths": [], "summary": {}, "periods": {"default": "monthly", "labels": {}, "allTime": {"summary": {}, "byModel": []}, "monthly": {"monthKey": None, "summary": {}, "byModel": []}}}
-
+        return empty_cli_payload(resolved_db_path)
 
     try:
         # Read-only URI connection avoids taking a write lock on the live CLI DB.
@@ -271,7 +907,7 @@ def build_cli_dashboard_data(
         try:
             con = sqlite3.connect(resolved_db_path, timeout=5)
         except Exception:
-            return {"available": False, "dbPath": resolved_db_path, "sessions": [], "byModel": [], "files": [], "tools": [], "otelAvailable": False, "otelPaths": [], "summary": {}, "periods": {"default": "monthly", "labels": {}, "allTime": {"summary": {}, "byModel": []}, "monthly": {"monthKey": None, "summary": {}, "byModel": []}}}
+            return empty_cli_payload(resolved_db_path)
 
     try:
         cur = con.cursor()
@@ -290,12 +926,17 @@ def build_cli_dashboard_data(
                 "updatedAt": _iso_to_epoch_ms(updated_at),
             }
 
+        billing_columns = [name for name in _BILLING_COLUMNS if name in _available_columns(cur, "assistant_usage_events")]
         cur.execute(
             "SELECT session_id, turn_index, model, input_tokens, output_tokens, "
-            "cache_read_tokens, cache_write_tokens, reasoning_tokens, duration_ms, created_at "
-            "FROM assistant_usage_events"
+            "cache_read_tokens, cache_write_tokens, reasoning_tokens, duration_ms, created_at"
+            + ("".join(f", {name}" for name in billing_columns))
+            + " FROM assistant_usage_events"
         )
         event_rows = cur.fetchall()
+        # Positional access below would break the moment a column is absent, so
+        # the optional billing columns are addressed by name.
+        billing_index = {name: 10 + offset for offset, name in enumerate(billing_columns)}
 
         cur.execute("SELECT session_id, MAX(turn_index) FROM turns GROUP BY session_id")
         turn_counts = {session_id: (max_turn or 0) + 1 for session_id, max_turn in cur.fetchall()}
@@ -358,25 +999,50 @@ def build_cli_dashboard_data(
             "assistantResponseTruncated": len(assistant_text) > _TURN_PREVIEW_LIMIT,
         })
 
-    per_session: dict[str, dict[str, Any]] = {}
-    per_session_model: dict[tuple[str, str], dict[str, float]] = collections.defaultdict(
-        lambda: {"input": 0.0, "output": 0.0, "cached": 0.0, "cacheWrite": 0.0, "reasoning": 0.0, "calls": 0, "durationMs": 0.0}
-    )
-    model_totals: dict[str, dict[str, float]] = collections.defaultdict(
-        lambda: {"input": 0.0, "output": 0.0, "cached": 0.0, "cacheWrite": 0.0, "reasoning": 0.0, "calls": 0, "sessionIds": set()}
-    )
+    def _new_token_bucket(with_session_ids: bool = False) -> dict[str, Any]:
+        bucket = {
+            "input": 0.0, "inputBillable": 0.0, "output": 0.0, "cached": 0.0,
+            "cacheWrite": 0.0, "reasoning": 0.0, "calls": 0, "durationMs": 0.0,
+            **_new_cost_accumulator(),
+        }
+        if with_session_ids:
+            bucket["sessionIds"] = set()
+        return bucket
 
-    for session_id, turn_index, model, input_tokens, output_tokens, cache_read, cache_write, reasoning, duration_ms, created_at in event_rows:
+    per_session: dict[str, dict[str, Any]] = {}
+    per_session_model: dict[tuple[str, str], dict[str, Any]] = collections.defaultdict(_new_token_bucket)
+    model_totals: dict[str, dict[str, Any]] = collections.defaultdict(lambda: _new_token_bucket(with_session_ids=True))
+
+    for row in event_rows:
+        session_id, turn_index, model, input_tokens, output_tokens, cache_read, cache_write, reasoning, duration_ms, created_at = row[:10]
         model_name = model or "unknown"
-        key = (session_id, model_name)
-        bucket = per_session_model[key]
-        bucket["input"] += float(input_tokens or 0)
-        bucket["output"] += float(output_tokens or 0)
-        bucket["cached"] += float(cache_read or 0)
-        bucket["cacheWrite"] += float(cache_write or 0)
-        bucket["reasoning"] += float(reasoning or 0)
-        bucket["calls"] += 1
-        bucket["durationMs"] += float(duration_ms or 0)
+        nano_aiu = row[billing_index["total_nano_aiu"]] if "total_nano_aiu" in billing_index else None
+        token_details_json = row[billing_index["token_details_json"]] if "token_details_json" in billing_index else None
+
+        # Price the call on its own: rates, promotions and long-context tiers
+        # apply per call, so aggregating tokens first and pricing once would be
+        # wrong the moment a session spans two of them.
+        priced = _event_cost(
+            model_name,
+            float(input_tokens or 0),
+            float(output_tokens or 0),
+            float(cache_read or 0),
+            float(cache_write or 0),
+            nano_aiu,
+            token_details_json,
+        )
+
+        for bucket in (per_session_model[(session_id, model_name)], model_totals[model_name]):
+            bucket["input"] += float(input_tokens or 0)
+            bucket["inputBillable"] += priced["counts"]["input"]
+            bucket["output"] += float(output_tokens or 0)
+            bucket["cached"] += float(cache_read or 0)
+            bucket["cacheWrite"] += float(cache_write or 0)
+            bucket["reasoning"] += float(reasoning or 0)
+            bucket["calls"] += 1
+            bucket["durationMs"] += float(duration_ms or 0)
+            _add_cost(bucket, priced)
+        model_totals[model_name]["sessionIds"].add(session_id)
 
         entry = per_session.setdefault(session_id, {
             "id": session_id,
@@ -388,49 +1054,48 @@ def build_cli_dashboard_data(
         entry["calls"] += 1
         entry["lastActivity"] = max(entry["lastActivity"], _iso_to_epoch_ms(created_at))
 
-        mtotal = model_totals[model_name]
-        mtotal["input"] += float(input_tokens or 0)
-        mtotal["output"] += float(output_tokens or 0)
-        mtotal["cached"] += float(cache_read or 0)
-        mtotal["cacheWrite"] += float(cache_write or 0)
-        mtotal["reasoning"] += float(reasoning or 0)
-        mtotal["calls"] += 1
-        mtotal["sessionIds"].add(session_id)
-
     sessions_out: list[dict[str, Any]] = []
-    total_cost = 0.0
+    grand_totals = _new_cost_accumulator()
     total_input = 0.0
+    total_input_billable = 0.0
     total_output = 0.0
     total_cached = 0.0
+    total_cache_write = 0.0
 
     for session_id, entry in per_session.items():
         meta = session_meta.get(session_id, {})
-        session_cost = 0.0
+        session_totals = _new_cost_accumulator()
         session_input = 0.0
+        session_input_billable = 0.0
         session_output = 0.0
         session_cached = 0.0
+        session_cache_write = 0.0
         model_breakdown = []
         for model_name in entry["models"]:
             bucket = per_session_model[(session_id, model_name)]
-            cost_info = calculate_cost(bucket["input"], bucket["output"], bucket["cached"], model_name)
-            session_cost += cost_info["cost"]
             session_input += bucket["input"]
+            session_input_billable += bucket["inputBillable"]
             session_output += bucket["output"]
             session_cached += bucket["cached"]
+            session_cache_write += bucket["cacheWrite"]
+            _add_cost(session_totals, bucket)
             model_breakdown.append({
                 "model": model_name,
                 "calls": bucket["calls"],
                 "input": bucket["input"],
+                "inputBillable": bucket["inputBillable"],
                 "output": bucket["output"],
                 "cached": bucket["cached"],
                 "cacheWrite": bucket["cacheWrite"],
-                "cost": cost_info["cost"],
+                **_cost_fields(bucket),
             })
 
-        total_cost += session_cost
+        _add_cost(grand_totals, session_totals)
         total_input += session_input
+        total_input_billable += session_input_billable
         total_output += session_output
         total_cached += session_cached
+        total_cache_write += session_cache_write
 
         sessions_out.append({
             "id": session_id,
@@ -448,12 +1113,18 @@ def build_cli_dashboard_data(
             "models": sorted(entry["models"]),
             "modelBreakdown": sorted(model_breakdown, key=lambda row: row["cost"], reverse=True),
             "input": session_input,
+            "inputBillable": session_input_billable,
             "output": session_output,
             "cached": session_cached,
-            "uncached": max(0.0, session_input - session_cached),
-            "cost": session_cost,
+            "cacheWrite": session_cache_write,
+            # `uncached` predates the cache-write split and is read by the front
+            # end as "prompt tokens billed at the full input rate", which is
+            # exactly the billable remainder - not prompt minus cache reads.
+            "uncached": session_input_billable,
+            **_cost_fields(session_totals),
             "turns": turns_by_session.get(session_id, []),
             "tools": otel_data["toolsBySession"].get(session_id, []),
+            "otelTokens": otel_data.get("tokensBySession", {}).get(session_id),
             "files": files_by_session_out.get(session_id, []),
         })
 
@@ -461,17 +1132,17 @@ def build_cli_dashboard_data(
 
     by_model = []
     for model_name, mtotal in model_totals.items():
-        cost_info = calculate_cost(mtotal["input"], mtotal["output"], mtotal["cached"], model_name)
         by_model.append({
             "model": model_name,
             "calls": mtotal["calls"],
             "sessionCount": len(mtotal["sessionIds"]),
             "input": mtotal["input"],
-            "uncached": max(0.0, mtotal["input"] - mtotal["cached"]),
+            "inputBillable": mtotal["inputBillable"],
+            "uncached": mtotal["inputBillable"],
             "cached": mtotal["cached"],
             "cacheWrite": mtotal["cacheWrite"],
             "output": mtotal["output"],
-            "cost": cost_info["cost"],
+            **_cost_fields(mtotal),
         })
     by_model.sort(key=lambda row: row["cost"], reverse=True)
 
@@ -504,6 +1175,13 @@ def build_cli_dashboard_data(
         reverse=True,
     )
 
+    cost_fields = _cost_fields(grand_totals)
+    db_tokens = {
+        "input": total_input_billable,
+        "cache_read": total_cached,
+        "cache_write": total_cache_write,
+        "output": total_output,
+    }
     return {
         "available": True,
         "dbPath": resolved_db_path,
@@ -513,14 +1191,31 @@ def build_cli_dashboard_data(
         "tools": otel_data["tools"],
         "otelAvailable": otel_data["available"],
         "otelPaths": otel_data["paths"],
+        "otel": {
+            "available": otel_data["available"],
+            "paths": otel_data["paths"],
+            "instruments": otel_data.get("instruments", []),
+            "recordCounts": otel_data.get("recordCounts", {}),
+            "tokens": otel_data.get("tokens", {}),
+            "spend": otel_data.get("spend", {}),
+            "sessionCount": len(otel_data.get("tokensBySession", {}) or {}),
+        },
+        "otelReconciliation": _reconcile_otel(otel_data, db_tokens, cost_fields["cost"]),
         "summary": {
             "sessionCount": len(sessions_out),
             "callCount": len(event_rows),
             "totalInput": total_input,
             "totalOutput": total_output,
             "totalCached": total_cached,
-            "totalUncached": max(0.0, total_input - total_cached),
-            "totalCost": total_cost,
+            "totalCacheWrite": total_cache_write,
+            "totalUncached": total_input_billable,
+            "totalInputBillable": total_input_billable,
+            "totalCost": cost_fields["cost"],
+            "totalCredits": cost_fields["credits"],
+            "costByType": cost_fields["costByType"],
+            "costSource": cost_fields["costSource"],
+            "costSources": cost_fields["costSources"],
+            "costExact": cost_fields["costExact"],
             "fileCount": len(files_out),
             "toolCallCount": sum(row["calls"] for row in otel_data["tools"]),
         },

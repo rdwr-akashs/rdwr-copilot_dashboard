@@ -14,7 +14,7 @@ It parses Copilot debug / OTel session logs and renders a browser UI with:
   - messages//
   - tool results
   - other prompt content
-- API-style cost estimation using model pricing
+- cost per chat, session, model, and file — **exact** for GitHub Copilot CLI usage (taken from what GitHub charged each call), estimated from model pricing for VS Code chat
 - analysis views for models, tools, files, insights, and telemetry
 - per-file timeline graphs for estimated token / cost impact over time
 
@@ -34,7 +34,7 @@ The dashboard intentionally shows **two different concepts**:
   - `Cached-read tokens`
    - `Billed output tokens`
    - `Billed cost`
-   - these are API-style cost estimates per call, summed over the chat/session
+   - these are per-call costs, summed over the chat/session. For CLI sessions they are GitHub's own recorded charges; for VS Code chat they are API-style estimates from the pricing table. The UI labels which, per row.
 
 That distinction matters because a large prompt shown in Copilot is a **snapshot of the current request**, while billed cost is the **sum of many requests over time**.
 
@@ -97,6 +97,50 @@ Typical discovered paths look like:
 - `%APPDATA%\Code\User\workspaceStorage\*\GitHub.copilot-chat\debug-logs` (Windows; also checks `Code - Insiders`)
 
 Override discovery at any time with the `COPILOT_DEBUG_LOGS` environment variable, or by passing explicit directories on the command line.
+
+## GitHub Copilot CLI usage
+
+The **CLI** tab is fed by a completely different source from the Chats tab: the local session store that `copilot` writes at `~/.copilot/session-store.db`. Nothing needs enabling — if you have used the CLI, the data is already there. Override the location with `--cli-db /path/to/session-store.db` (or `$COPILOT_CLI_DB`); the file is only ever opened read-only.
+
+That database matters because it records **what GitHub actually charged for each call**, in the `assistant_usage_events` table:
+
+- `total_nano_aiu` — the exact charge for that call, in nano AI units (1 credit = 1 AIU = $0.01)
+- `token_details_json` — the per-token-type counts *and the rates GitHub applied*
+
+So CLI costs are not estimates. They are GitHub's own figures, summed per call, and they already include promotional pricing, long-context tiers, and the 10% auto-model-selection discount. Every CLI cost in the UI carries a provenance badge saying which of these it came from:
+
+| Badge | Source | Meaning |
+| --- | --- | --- |
+| `exact` | `billed` | `total_nano_aiu`, GitHub's recorded charge |
+| `exact` | `rates` | priced from the rates GitHub applied to that call |
+| `partly exact` | `mixed` | some calls in this row fell back to an estimate |
+| `estimated` | `estimate` | priced from `model_pricing.py` — no billed figure was recorded (older CLI build) |
+
+The pricing table in **Reference → Model prices** is therefore only a *fallback* for CLI data, and the primary source for the Chats tab, where VS Code exposes no billing figure at all.
+
+### Optional: capture the CLI's OpenTelemetry export
+
+The CLI can also emit OTel spans (per-tool-call timing) and metrics (token and spend counters). This is optional and never changes a cost figure — it is used for per-tool insight and as an independent cross-check that reconciles GitHub's own counters against the database, surfacing any disagreement in the CLI tab.
+
+Per [GitHub's CLI reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference#opentelemetry-monitoring), OTel activates when any of `COPILOT_OTEL_ENABLED=true`, `OTEL_EXPORTER_OTLP_ENDPOINT`, or `COPILOT_OTEL_FILE_EXPORTER_PATH` is set. The dashboard reads the **file exporter** JSONL format, so set that path before running `copilot`:
+
+```bash
+export COPILOT_OTEL_FILE_EXPORTER_PATH="$HOME/.copilot/otel.jsonl"
+copilot
+```
+
+```powershell
+$env:COPILOT_OTEL_FILE_EXPORTER_PATH = "$HOME\.copilot\otel.jsonl"
+copilot
+```
+
+Then point the dashboard at the file (repeatable; defaults to `$COPILOT_OTEL_FILE_EXPORTER_PATH` when set):
+
+```bash
+python3 generate_dashboard.py --cli-otel-log ~/.copilot/otel.jsonl
+```
+
+Setting only `COPILOT_OTEL_ENABLED=true` uses the default `otlp-http` exporter, which posts to `localhost:4318` and silently discards everything if nothing is listening there — so it produces no file for the dashboard to read.
 
 ## Generate a static HTML file
 
@@ -355,6 +399,8 @@ Common approaches:
 ## Useful files in this repo
 
 - `dashboard_core.py` — parsing, cost estimation, aggregation, and HTML generation
+- `cli_usage.py` — Copilot CLI `session-store.db` reader (exact billed costs) and OTel span/metric parsing
+- `model_pricing.py` — the published per-model rate table used as the estimation fallback
 - `generate_dashboard.py` — CLI entrypoint for static HTML generation
 - `serve_dashboard.py` — live HTTP server that regenerates the dashboard on request
 - `remote_start.sh` — cache-only remote launcher that writes compact/full caches without serving HTML
@@ -368,10 +414,11 @@ Common approaches:
   - `inputMessages`
   - referenced system prompt files
   - referenced tool-definition files
-- Cost is estimated using API pricing tables and the observed token counters in the logs.
-- Current Copilot debug logs expose `inputTokens`, `outputTokens`, and cached-read counters, but they do **not** reliably expose explicit provider cache-write / cache-creation token counts.
+- **VS Code chat** cost is estimated using API pricing tables and the observed token counters in the logs. Two things that estimate cannot see: the 10% auto-model-selection discount (nothing in the telemetry flags a call as auto-routed) and cache-write tokens (see below), so cache-heavy chats read as a lower bound.
+- **Copilot CLI** cost is not estimated — it is read from what GitHub charged each call in `~/.copilot/session-store.db`, including cache-write tokens billed at their own rate. See "GitHub Copilot CLI usage" above.
+- Current Copilot **chat** debug logs expose `inputTokens`, `outputTokens`, and cached-read counters, but they do **not** reliably expose explicit provider cache-write / cache-creation token counts. The CLI session store does record them (`cache_write_tokens`), so this limitation applies to the Chats tab only.
 - Compaction is not emitted as a first-class event in the current debug logs. The dashboard therefore infers context resets from prompt shrinkage / prompt rebuild behavior and labels those as inferred segment boundaries.
-- `inputTokens` is treated as billed input for each call. `cachedTokens` is treated as the cached-read subset of that billed input, and `uncached input = inputTokens - cachedTokens`.
+- `inputTokens` is treated as billed input for each call, and is **all-inclusive**: the cached-read and cache-write counts are subsets of it, not additions to it. So uncached (billable-at-full-rate) input is `inputTokens - cachedTokens - cacheWriteTokens`, where the chat side has no cache-write counter and that term is 0.
 - Some file rows may point to Copilot-generated resource files in VS Code workspace storage; that is expected when the model consumed those artifacts as part of the conversation context.
 
 ## Quick start

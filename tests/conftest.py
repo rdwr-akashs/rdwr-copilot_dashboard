@@ -21,6 +21,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from cli_usage import empty_cli_payload  # noqa: E402  (needs REPO_ROOT on sys.path)
+
 
 @pytest.fixture
 def tmp_cache_dir(tmp_path, monkeypatch):
@@ -166,13 +168,23 @@ def fake_cli_db(tmp_path):
 
 @pytest.fixture
 def fake_otel_jsonl(tmp_path):
-    """Build a JSONL OTel file-exporter export with `execute_tool` spans.
+    """Build a JSONL OTel file-exporter export: `execute_tool` spans, a chat
+    span with GenAI usage attributes, and token/spend metric records.
 
     Shape derived from `parse_cli_otel_files()`: each line is a JSON object
     with `type: "span"`, a `name` starting with `execute_tool`, `attributes`
     containing `gen_ai.tool.name` and `gen_ai.conversation.id` (joined onto
     `session-1` / `session-2` from `fake_cli_db`), and `startTime`/`endTime`
     as [seconds, nanoseconds] pairs.
+
+    The metric half is deliberately built to agree *exactly* with
+    `fake_cli_db`'s billed figures, so `cli["otelReconciliation"]` comes out at
+    a zero delta and any future change that breaks the OTel<->DB join shows up
+    as a non-zero one. Coverage is split to exercise both intake paths: token
+    metrics carry sessions 1 and 2, and session 3's usage arrives on a `chat`
+    span instead. Protobuf-style attribute lists, nested `sum.dataPoints`, and
+    a spend instrument in an unrecognised unit (which must be reported raw, not
+    converted) are all represented.
     """
     otel_path = tmp_path / "otel-export.jsonl"
     spans = [
@@ -204,6 +216,78 @@ def fake_otel_jsonl(tmp_path):
             "startTime": [1735729200, 0],
             "endTime": [1735729202, 500_000_000],
         },
+        # session-3's usage arrives as GenAI attributes on a chat span rather
+        # than as a metric: input 500 / output 100, no caching (see fake_cli_db).
+        {
+            "type": "span",
+            "name": "chat claude-sonnet-4.5",
+            "attributes": {
+                "gen_ai.conversation.id": "session-3",
+                "gen_ai.request.model": "claude-sonnet-4.5",
+                "gen_ai.usage.input_tokens": 500,
+                "gen_ai.usage.output_tokens": 100,
+            },
+            "startTime": [1735913100, 0],
+            "endTime": [1735913100, 900_000_000],
+        },
+        # Token metrics for sessions 1 and 2, with the billed category carried
+        # in `gen_ai.token.type` and the points nested under `sum`.
+        {
+            "type": "metric",
+            "name": "gen_ai.client.token.usage",
+            "unit": "{token}",
+            "sum": {
+                "dataPoints": [
+                    {"attributes": {"gen_ai.conversation.id": "session-1", "gen_ai.token.type": "input"}, "asInt": 1550},
+                    {"attributes": {"gen_ai.conversation.id": "session-1", "gen_ai.token.type": "cache_read"}, "asInt": 900},
+                    {"attributes": {"gen_ai.conversation.id": "session-1", "gen_ai.token.type": "cache_write"}, "asInt": 50},
+                    {"attributes": {"gen_ai.conversation.id": "session-1", "gen_ai.token.type": "output"}, "asInt": 500},
+                    # Protobuf-shaped attribute list, the other encoding
+                    # `_otel_attributes()` has to accept.
+                    {
+                        "attributes": [
+                            {"key": "gen_ai.conversation.id", "value": {"stringValue": "session-2"}},
+                            {"key": "gen_ai.token.type", "value": {"stringValue": "input"}},
+                        ],
+                        "asInt": 2000,
+                    },
+                    {
+                        "attributes": [
+                            {"key": "gen_ai.conversation.id", "value": {"stringValue": "session-2"}},
+                            {"key": "gen_ai.token.type", "value": {"stringValue": "cache_read"}},
+                        ],
+                        "asInt": 2500,
+                    },
+                    {
+                        "attributes": [
+                            {"key": "gen_ai.conversation.id", "value": {"stringValue": "session-2"}},
+                            {"key": "gen_ai.token.type", "value": {"stringValue": "output"}},
+                        ],
+                        "asInt": 900,
+                    },
+                ]
+            },
+        },
+        # Spend in an unrecognised unit: must be surfaced raw with usd=None, and
+        # must not stop the credit-denominated instrument below from being used.
+        {
+            "type": "metric",
+            "name": "copilot.billing.charge",
+            "unit": "{widget}",
+            "dataPoints": [{"value": 999.0}],
+        },
+        # Spend in AI credits: 3.47325 credits == $0.0347325, exactly the billed
+        # total fake_cli_db's events add up to.
+        {
+            "type": "metric",
+            "name": "copilot.aiu.spend",
+            "unit": "{credit}",
+            "dataPoints": [
+                {"attributes": {"gen_ai.conversation.id": "session-1"}, "value": 1.26075},
+                {"attributes": {"gen_ai.conversation.id": "session-2"}, "value": 1.9125},
+                {"attributes": {"gen_ai.conversation.id": "session-3"}, "value": 0.3},
+            ],
+        },
         # Non-span / non execute_tool lines and a malformed line should be
         # silently skipped by parse_cli_otel_files().
         {"type": "log", "name": "something-else"},
@@ -230,16 +314,7 @@ def minimal_app_data():
         "sessions": [],
         "analysis": {},
         "periods": {"default": "monthly", "labels": {}, "allTime": {}, "monthly": {}},
-        "cli": {
-            "available": False,
-            "sessions": [],
-            "byModel": [],
-            "files": [],
-            "tools": [],
-            "otelAvailable": False,
-            "otelPaths": [],
-            "summary": {},
-        },
+        "cli": empty_cli_payload(None),
     }
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 
+from cli_usage import empty_cli_payload
 from html_generation import generate_html
 
 
@@ -14,16 +15,7 @@ def _minimal_app_data():
         "sessions": [],
         "analysis": {},
         "periods": {"default": "monthly", "labels": {}, "allTime": {}, "monthly": {}},
-        "cli": {
-            "available": False,
-            "sessions": [],
-            "byModel": [],
-            "files": [],
-            "tools": [],
-            "otelAvailable": False,
-            "otelPaths": [],
-            "summary": {},
-        },
+        "cli": empty_cli_payload(None),
     }
 
 

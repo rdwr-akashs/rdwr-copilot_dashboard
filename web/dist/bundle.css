@@ -637,7 +637,13 @@
     th, td { border-bottom: 1px solid var(--overlay-06); padding: 10px 8px; text-align: left; vertical-align: top; }
     th { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
     th button { all: unset; cursor: pointer; color: inherit; }
-    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    /* `th.num` as well as `td.num`, not just the cells: every table renderer
+       (tables.js renderTable(), the rollup tables, the hand-rolled CLI and
+       file tables) marks a numeric column's header AND its cells with .num,
+       but styling only `td.num` left the header stuck on the `th, td`
+       left-align above right-aligned values. In a wide column the label then
+       sits nowhere near the numbers it names. */
+    th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
     .compact-prices-wrap { overflow-x: auto; }
     /* Full width, not `auto`: at `auto` the four narrow columns hugged the
        left third of the panel and left a large empty band to their right. */

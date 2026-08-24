@@ -418,6 +418,10 @@ import { renderContextBreakdown, renderEvent, renderSessionMeta, renderSessionTo
       document.getElementById('modelCompareModalTitle').textContent = 'Model cost comparison';
       document.getElementById('modelCompareModalSubtitle').textContent = session.title + ' · ' + formatInteger(inputTokens) + ' input · ' + formatInteger(outputTokens) + ' output tokens (' + tokenModeLabel() + ')';
 
+      // No cache-write argument: VS Code chat telemetry exposes no cache-write
+      // counter, so there is no count to price. Passing nothing keeps those
+      // tokens inside the uncached remainder, which is the closest available
+      // approximation - see the caveat rendered below.
       const rows = Object.entries(PRICING_TABLE).map(([model, pricing]) => ({
         model,
         cost: calcModelCost(inputTokens, cachedTokens, outputTokens, pricing),
@@ -428,6 +432,7 @@ import { renderContextBreakdown, renderEvent, renderSessionMeta, renderSessionTo
 
       document.getElementById('modelCompareModalContent').innerHTML = `
         <div class="note small" style="margin-bottom:12px">Estimated cost if this chat's ${escapeHtml(tokenModeLabel())} token usage (<strong>${formatInteger(inputTokens)}</strong> input, <strong>${formatInteger(cachedTokens)}</strong> cached, <strong>${formatInteger(outputTokens)}</strong> output) was processed by each model. Assumes same cache hit pattern.</div>
+        <div class="note small" style="margin-bottom:12px">Chat telemetry reports no cache-write counter, so cache writes are priced here at each model's input rate rather than its (usually higher) cache-write rate. For models that charge a cache-write premium — Anthropic bills 1.25× input — these figures are a lower bound. Copilot CLI sessions do report the counter, so the CLI tab's costs come straight from what GitHub charged and need no such assumption.</div>
         <div style="overflow-x:auto">
         <table>
           <thead><tr>

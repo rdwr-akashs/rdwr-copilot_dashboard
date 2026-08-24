@@ -195,7 +195,20 @@
         "cached": 2500.0,
         "calls": 2,
         "cost": 0.019125,
+        "costByType": {
+          "cache_read": 0.000625,
+          "cache_write": 0.0,
+          "input": 0.005,
+          "output": 0.0135
+        },
+        "costExact": false,
+        "costSource": "estimate",
+        "costSources": {
+          "estimate": 2
+        },
+        "credits": 1.9124999999999999,
         "input": 4500.0,
+        "inputBillable": 2000.0,
         "model": "gpt-5.4",
         "output": 900.0,
         "sessionCount": 1,
@@ -205,12 +218,25 @@
         "cacheWrite": 50.0,
         "cached": 900.0,
         "calls": 3,
-        "cost": 0.01557,
+        "cost": 0.0156075,
+        "costByType": {
+          "cache_read": 0.00027,
+          "cache_write": 0.0001875,
+          "input": 0.006149999999999999,
+          "output": 0.009
+        },
+        "costExact": false,
+        "costSource": "estimate",
+        "costSources": {
+          "estimate": 3
+        },
+        "credits": 1.5607499999999999,
         "input": 3000.0,
+        "inputBillable": 2050.0,
         "model": "claude-sonnet-4.5",
         "output": 600.0,
         "sessionCount": 2,
-        "uncached": 2100.0
+        "uncached": 2050.0
       }
     ],
     "dbPath": "<normalized-cli-db-path>",
@@ -248,10 +274,94 @@
         "touches": 1
       }
     ],
+    "otel": {
+      "available": true,
+      "instruments": [
+        {
+          "instrument": "copilot.aiu.spend",
+          "kind": "spend",
+          "points": 3,
+          "total": 3.47325,
+          "unit": "{credit}"
+        },
+        {
+          "instrument": "copilot.billing.charge",
+          "kind": "spend",
+          "points": 1,
+          "total": 999.0,
+          "unit": "{widget}"
+        },
+        {
+          "instrument": "gen_ai.client.token.usage",
+          "kind": "token",
+          "points": 7,
+          "total": 8400.0,
+          "unit": "{token}"
+        }
+      ],
+      "paths": [
+        "<normalized-otel-path>"
+      ],
+      "recordCounts": {
+        "metric": 3,
+        "other": 1,
+        "span": 5
+      },
+      "sessionCount": 3,
+      "spend": {
+        "instrument": "copilot.aiu.spend",
+        "raw": 3.47325,
+        "unit": "{credit}",
+        "usd": 0.0347325
+      },
+      "tokens": {
+        "cache_read": 3400.0,
+        "cache_write": 50.0,
+        "input": 4050.0,
+        "output": 1500.0
+      }
+    },
     "otelAvailable": true,
     "otelPaths": [
       "<normalized-otel-path>"
     ],
+    "otelReconciliation": {
+      "available": true,
+      "spend": {
+        "db": 0.0347325,
+        "delta": 0.0,
+        "deltaPct": 0.0,
+        "instrument": "copilot.aiu.spend",
+        "otel": 0.0347325,
+        "unit": "{credit}"
+      },
+      "tokens": {
+        "cache_read": {
+          "db": 3400.0,
+          "delta": 0.0,
+          "deltaPct": 0.0,
+          "otel": 3400.0
+        },
+        "cache_write": {
+          "db": 50.0,
+          "delta": 0.0,
+          "deltaPct": 0.0,
+          "otel": 50.0
+        },
+        "input": {
+          "db": 4050.0,
+          "delta": 0.0,
+          "deltaPct": 0.0,
+          "otel": 4050.0
+        },
+        "output": {
+          "db": 1500.0,
+          "delta": 0.0,
+          "deltaPct": 0.0,
+          "otel": 1500.0
+        }
+      }
+    },
     "periods": {
       "allTime": {
         "byModel": [
@@ -260,7 +370,20 @@
             "cached": 2500.0,
             "calls": 2,
             "cost": 0.019125,
+            "costByType": {
+              "cache_read": 0.000625,
+              "cache_write": 0.0,
+              "input": 0.005,
+              "output": 0.0135
+            },
+            "costExact": false,
+            "costSource": "estimate",
+            "costSources": {
+              "estimate": 2
+            },
+            "credits": 1.9124999999999999,
             "input": 4500.0,
+            "inputBillable": 2000.0,
             "model": "gpt-5.4",
             "output": 900.0,
             "sessionCount": 1,
@@ -270,24 +393,51 @@
             "cacheWrite": 50.0,
             "cached": 900.0,
             "calls": 3,
-            "cost": 0.01557,
+            "cost": 0.0156075,
+            "costByType": {
+              "cache_read": 0.00027,
+              "cache_write": 0.0001875,
+              "input": 0.006149999999999999,
+              "output": 0.009
+            },
+            "costExact": false,
+            "costSource": "estimate",
+            "costSources": {
+              "estimate": 3
+            },
+            "credits": 1.5607499999999999,
             "input": 3000.0,
+            "inputBillable": 2050.0,
             "model": "claude-sonnet-4.5",
             "output": 600.0,
             "sessionCount": 2,
-            "uncached": 2100.0
+            "uncached": 2050.0
           }
         ],
         "summary": {
           "callCount": 5,
+          "costByType": {
+            "cache_read": 0.000895,
+            "cache_write": 0.0001875,
+            "input": 0.01115,
+            "output": 0.0225
+          },
+          "costExact": false,
+          "costSource": "estimate",
+          "costSources": {
+            "estimate": 5
+          },
           "fileCount": 4,
           "sessionCount": 3,
           "toolCallCount": 4,
+          "totalCacheWrite": 50.0,
           "totalCached": 3400.0,
-          "totalCost": 0.034695000000000004,
+          "totalCost": 0.0347325,
+          "totalCredits": 3.4732499999999997,
           "totalInput": 7500.0,
+          "totalInputBillable": 4050.0,
           "totalOutput": 1500.0,
-          "totalUncached": 4100.0
+          "totalUncached": 4050.0
         }
       },
       "default": "monthly",
@@ -300,12 +450,24 @@
         "monthKey": "2026-08",
         "summary": {
           "callCount": 0,
+          "costByType": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 0.0,
+            "output": 0.0
+          },
+          "costExact": false,
+          "costSource": "estimate",
+          "costSources": {},
           "fileCount": 0,
           "sessionCount": 0,
           "toolCallCount": 0,
+          "totalCacheWrite": 0.0,
           "totalCached": 0.0,
           "totalCost": 0.0,
+          "totalCredits": 0.0,
           "totalInput": 0.0,
+          "totalInputBillable": 0.0,
           "totalOutput": 0.0,
           "totalUncached": 0.0
         }
@@ -314,10 +476,23 @@
     "sessions": [
       {
         "branch": "main",
+        "cacheWrite": 0.0,
         "cached": 0.0,
         "callCount": 1,
         "cost": 0.003,
+        "costByType": {
+          "cache_read": 0.0,
+          "cache_write": 0.0,
+          "input": 0.0015,
+          "output": 0.0015
+        },
+        "costExact": false,
+        "costSource": "estimate",
+        "costSources": {
+          "estimate": 1
+        },
         "createdAt": 1767448800000.0,
+        "credits": 0.3,
         "cwd": "/repo/a",
         "dayKey": "2026-01-03",
         "files": [
@@ -331,6 +506,7 @@
         ],
         "id": "session-3",
         "input": 500.0,
+        "inputBillable": 500.0,
         "lastActivity": 1767449100000.0,
         "modelBreakdown": [
           {
@@ -338,7 +514,20 @@
             "cached": 0.0,
             "calls": 1,
             "cost": 0.003,
+            "costByType": {
+              "cache_read": 0.0,
+              "cache_write": 0.0,
+              "input": 0.0015,
+              "output": 0.0015
+            },
+            "costExact": false,
+            "costSource": "estimate",
+            "costSources": {
+              "estimate": 1
+            },
+            "credits": 0.3,
             "input": 500.0,
+            "inputBillable": 500.0,
             "model": "claude-sonnet-4.5",
             "output": 100.0
           }
@@ -347,6 +536,12 @@
           "claude-sonnet-4.5"
         ],
         "monthKey": "2026-01",
+        "otelTokens": {
+          "cache_read": 0.0,
+          "cache_write": 0.0,
+          "input": 500.0,
+          "output": 100.0
+        },
         "output": 100.0,
         "repository": "org/repo-a",
         "summary": "Refactor pricing module",
@@ -367,10 +562,23 @@
       },
       {
         "branch": "feature/x",
+        "cacheWrite": 0.0,
         "cached": 2500.0,
         "callCount": 2,
         "cost": 0.019125,
+        "costByType": {
+          "cache_read": 0.000625,
+          "cache_write": 0.0,
+          "input": 0.005,
+          "output": 0.0135
+        },
+        "costExact": false,
+        "costSource": "estimate",
+        "costSources": {
+          "estimate": 2
+        },
         "createdAt": 1767344400000.0,
+        "credits": 1.9124999999999999,
         "cwd": "/repo/b",
         "dayKey": "2026-01-02",
         "files": [
@@ -384,6 +592,7 @@
         ],
         "id": "session-2",
         "input": 4500.0,
+        "inputBillable": 2000.0,
         "lastActivity": 1767346200000.0,
         "modelBreakdown": [
           {
@@ -391,7 +600,20 @@
             "cached": 2500.0,
             "calls": 2,
             "cost": 0.019125,
+            "costByType": {
+              "cache_read": 0.000625,
+              "cache_write": 0.0,
+              "input": 0.005,
+              "output": 0.0135
+            },
+            "costExact": false,
+            "costSource": "estimate",
+            "costSources": {
+              "estimate": 2
+            },
+            "credits": 1.9124999999999999,
             "input": 4500.0,
+            "inputBillable": 2000.0,
             "model": "gpt-5.4",
             "output": 900.0
           }
@@ -400,6 +622,12 @@
           "gpt-5.4"
         ],
         "monthKey": "2026-01",
+        "otelTokens": {
+          "cache_read": 2500.0,
+          "cache_write": 0.0,
+          "input": 2000.0,
+          "output": 900.0
+        },
         "output": 900.0,
         "repository": "org/repo-b",
         "summary": "Add dashboard tests",
@@ -435,10 +663,23 @@
       },
       {
         "branch": "main",
+        "cacheWrite": 50.0,
         "cached": 900.0,
         "callCount": 2,
-        "cost": 0.012570000000000001,
+        "cost": 0.0126075,
+        "costByType": {
+          "cache_read": 0.00027,
+          "cache_write": 0.0001875,
+          "input": 0.00465,
+          "output": 0.0075
+        },
+        "costExact": false,
+        "costSource": "estimate",
+        "costSources": {
+          "estimate": 2
+        },
         "createdAt": 1767261600000.0,
+        "credits": 1.26075,
         "cwd": "/repo/a",
         "dayKey": "2026-01-01",
         "files": [
@@ -459,14 +700,28 @@
         ],
         "id": "session-1",
         "input": 2500.0,
+        "inputBillable": 1550.0,
         "lastActivity": 1767262500000.0,
         "modelBreakdown": [
           {
             "cacheWrite": 50.0,
             "cached": 900.0,
             "calls": 2,
-            "cost": 0.012570000000000001,
+            "cost": 0.0126075,
+            "costByType": {
+              "cache_read": 0.00027,
+              "cache_write": 0.0001875,
+              "input": 0.00465,
+              "output": 0.0075
+            },
+            "costExact": false,
+            "costSource": "estimate",
+            "costSources": {
+              "estimate": 2
+            },
+            "credits": 1.26075,
             "input": 2500.0,
+            "inputBillable": 1550.0,
             "model": "claude-sonnet-4.5",
             "output": 500.0
           }
@@ -475,6 +730,12 @@
           "claude-sonnet-4.5"
         ],
         "monthKey": "2026-01",
+        "otelTokens": {
+          "cache_read": 900.0,
+          "cache_write": 50.0,
+          "input": 1550.0,
+          "output": 500.0
+        },
         "output": 500.0,
         "repository": "org/repo-a",
         "summary": "Fix the login bug",
@@ -511,20 +772,34 @@
             "userMessageTruncated": false
           }
         ],
-        "uncached": 1600.0,
+        "uncached": 1550.0,
         "updatedAt": 1767263400000.0
       }
     ],
     "summary": {
       "callCount": 5,
+      "costByType": {
+        "cache_read": 0.000895,
+        "cache_write": 0.0001875,
+        "input": 0.011149999999999998,
+        "output": 0.0225
+      },
+      "costExact": false,
+      "costSource": "estimate",
+      "costSources": {
+        "estimate": 5
+      },
       "fileCount": 4,
       "sessionCount": 3,
       "toolCallCount": 4,
+      "totalCacheWrite": 50.0,
       "totalCached": 3400.0,
-      "totalCost": 0.034695000000000004,
+      "totalCost": 0.0347325,
+      "totalCredits": 3.4732499999999997,
       "totalInput": 7500.0,
+      "totalInputBillable": 4050.0,
       "totalOutput": 1500.0,
-      "totalUncached": 4100.0
+      "totalUncached": 4050.0
     },
     "tools": [
       {

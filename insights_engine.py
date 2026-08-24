@@ -839,7 +839,11 @@ def _rule_data_health(app_data: dict[str, Any], cfg: dict[str, Any], now_ms: flo
             title="CLI OpenTelemetry export is off - tool-level insight unavailable",
             detail=(
                 "GitHub Copilot CLI data is available, but no OpenTelemetry file-exporter JSONL was found, so "
-                "per-tool-call timing/impact data isn't available for the CLI tab."
+                "neither the CLI's spans (per-tool-call timing and impact) nor its metrics (token and spend "
+                "counters) could be read. Cost is unaffected: it comes from what GitHub charged each call in "
+                "session-store.db. What is lost is the independent cross-check of those charges - with an export "
+                "present, the CLI tab reconciles GitHub's own token and spend counters against the database and "
+                "reports any disagreement."
             ),
             source="cli",
             evidence=[{"dbPath": cli_data.get("dbPath"), "otelPaths": cli_data.get("otelPaths", [])}],

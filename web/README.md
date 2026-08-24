@@ -102,6 +102,42 @@ and confirming every referenced name is either a native/DOM method
 (`event.stopPropagation()`, `encodeURIComponent(...)`) or present in that
 `Object.assign(window, {...})` block.
 
+## Auditing the rendered UI (`npm run audit:ui`)
+
+`web/tools/ui-audit.mjs` loads a **generated** dashboard into jsdom, walks
+every tab and subtab, and inspects the resulting DOM. It exists because the
+interesting front-end bugs here are not build errors — the bundle compiles
+fine and the page renders — they are cascade and binding mistakes that only
+appear once real markup meets real CSS.
+
+```bash
+python3 generate_dashboard.py -o dashboard.html
+npm run audit:ui                                  # or: node web/tools/ui-audit.mjs <file.html>
+```
+
+It reports, and exits non-zero on:
+
+| Finding | What it catches |
+| --- | --- |
+| `align-mismatch` | a column whose `<th>` and `<td>` resolve to different `text-align`, so the label floats away from its values |
+| `column-count` | `thead` and `tbody` cell counts disagree |
+| `undefined-var` | `var(--x)` referenced with no `--x` defined |
+| `dead-class` | a class on a rendered element with no CSS rule at all |
+| `dead-handler` | an inline `onclick`/`onchange`/`oninput` target missing from `window` — the silent failure the section above warns about, checked automatically |
+| `render-throw` | a tab/subtab that throws while rendering |
+
+The first of those is why the rule at the top of `tabs.css` is
+`th.num, td.num` and not just `td.num`: every table renderer marks a numeric
+column's header *and* its cells with `.num`, and styling only the cells left
+2,323 headers across all 18 views left-aligned above right-aligned numbers.
+
+Add a class that is styled inline and used only as a query hook to
+`INLINE_STYLED_HOOKS` in the script, so the `dead-class` report stays signal.
+
+**Limitation:** jsdom has no layout engine, so this sees cascade-resolved
+styles and DOM structure only — never overflow, wrapping, or pixel positions.
+Those still need a real browser.
+
 ## Adding a new tab or section
 
 1. Add the new render function(s) to the most relevant `web/js/*.js` file (or
@@ -115,7 +151,8 @@ and confirming every referenced name is either a native/DOM method
    `Object.assign(window, {...})` block (see above).
 4. Add any new CSS rules to the most relevant `web/styles/*.css` file.
 5. Run `npm run build`, then `python dashboard_core.py -o out.html` to
-   regenerate and manually sanity-check the tab in a browser.
+   regenerate, then `npm run audit:ui` (see above) before manually
+   sanity-checking the tab in a browser.
 6. Commit the updated `web/js/`, `web/styles/`, and the rebuilt `web/dist/`.
 
 ## Why the JS is split the way it is
