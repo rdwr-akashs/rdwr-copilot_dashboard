@@ -1,6 +1,7 @@
 import { exportToJson, switchTab, switchTokenMode, switchUsagePeriod } from './actions.js';
 import { activePeriodLabel, activeSummary, pagedSessions, unifiedFilteredTotals } from './aggregate.js';
 import { cacheHitRateForBlock, escapeHtml, formatCost, formatCreditValue, formatInteger, formatPercent, pickTokenBlock, summaryDisplayTotals } from './format.js';
+import { dismissDiagnosticsBanner, renderDiagnosticsBanner } from './diagnostics.js';
 import { applyCustomDateInputs, currentFilters, decodeHashIntoState, encodeHashFromState, setFilter } from './filters.js';
 import { APP_DATA, STATE, applyTheme, captureInputFocusState, isBilledMode, normalizeTokenMode, restoreInputFocusState, tokenModeLabel } from './state.js';
 import { renderAnalysisTab } from './tab-analysis.js';
@@ -119,6 +120,7 @@ import { changeCliPage, deleteCliSessionPrompt, exportCliSessionToJson, openCliF
       const themeIsLight = STATE.theme === 'light';
       return `
         <section class="header">
+          ${renderDiagnosticsBanner()}
           <div class="header-top">
             <div>
               <h1>📊 Copilot Usage Explorer ${anonymizedBadge}</h1>
@@ -239,6 +241,7 @@ Object.assign(window, {
   closeModelCompareModal,
   deleteCliSessionPrompt,
   deleteSessionPrompt,
+  dismissDiagnosticsBanner,
   exportCliSessionToJson,
   exportSessionToJson,
   exportToJson,

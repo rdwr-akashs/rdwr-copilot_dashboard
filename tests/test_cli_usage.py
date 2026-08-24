@@ -7,7 +7,12 @@ import sqlite3
 
 import pytest
 
-from cli_usage import build_cli_dashboard_data
+import diagnostics
+from cli_usage import (
+    REASON_DB_ABSENT,
+    REASON_DB_LOCKED,
+    build_cli_dashboard_data,
+)
 from model_pricing import nano_aiu_to_usd, usd_to_nano_aiu
 
 
@@ -73,6 +78,53 @@ def test_nonexistent_db_path_returns_unavailable_without_raising(tmp_path):
     assert data["sessions"] == []
     assert data["byModel"] == []
     assert data["summary"] == {}
+
+
+# --------------------------------------------------------------------------
+# `available: False` used to conflate three very different situations: never
+# used the CLI, DB locked by a running copilot process, and a query/schema
+# failure. Only the last is a bug and only the middle is worth retrying, so the
+# flag alone could not drive any useful advice. `reason` separates them while
+# `available` keeps its historic meaning for the frontend.
+# --------------------------------------------------------------------------
+
+def test_absent_db_reports_a_benign_reason_and_no_diagnostic(tmp_path):
+    diagnostics.reset()
+    missing_path = str(tmp_path / "does-not-exist" / "session-store.db")
+    data = build_cli_dashboard_data(missing_path, otel_log_paths=[])
+    assert data["reason"] == REASON_DB_ABSENT
+    # Never having used the CLI is not a failure. Reporting it would put a
+    # permanent warning in front of every chat-only user.
+    assert diagnostics.entries() == []
+    diagnostics.reset()
+
+
+def test_present_but_unopenable_db_reports_a_cost_impacting_diagnostic(tmp_path, monkeypatch):
+    diagnostics.reset()
+    db_path = tmp_path / "session-store.db"
+    db_path.write_bytes(b"this is not a sqlite database")
+
+    def refuse(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(sqlite3, "connect", refuse)
+    data = build_cli_dashboard_data(str(db_path), otel_log_paths=[])
+
+    assert data["available"] is False
+    assert data["reason"] == REASON_DB_LOCKED
+    entries = diagnostics.entries()
+    assert [entry["code"] for entry in entries] == [diagnostics.CODE_CLI_DB_LOCKED]
+    # The CLI half of the spend is missing entirely, which understates the total.
+    assert entries[0]["impact"] == "cost"
+    diagnostics.reset()
+
+
+def test_healthy_db_reports_no_diagnostics(fake_cli_db):
+    diagnostics.reset()
+    data = build_cli_dashboard_data(fake_cli_db, otel_log_paths=[])
+    assert data["available"] is True
+    assert diagnostics.entries() == []
+    diagnostics.reset()
 
 
 def test_none_db_path_with_no_default_returns_unavailable(monkeypatch, tmp_path):

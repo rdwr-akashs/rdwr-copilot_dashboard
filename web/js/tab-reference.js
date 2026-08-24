@@ -1,5 +1,6 @@
 import { setToolCatalogSearch, setToolCatalogSort, switchDataTab } from './actions.js';
 import { activeAnalysis, analysisForMode } from './aggregate.js';
+import { renderDiagnosticsPanel } from './diagnostics.js';
 import { escapeHtml, formatCost, formatInteger, formatPercent } from './format.js';
 import { PRICING_TABLE, STATE } from './state.js';
 import { sortRows } from './tables.js';
@@ -219,6 +220,7 @@ import { sortRows } from './tables.js';
       const telemetry = activeAnalysis().telemetry || { sections: [], observedFields: [], entryTypes: {} };
       return `
         <div class="analysis-grid">
+          ${renderDiagnosticsPanel()}
           <section class="panel">
             <h2 class="section-title">Telemetry coverage</h2>
             <div class="section-subtitle">What the current Copilot debug / OTel data gives directly, and what the dashboard must estimate.</div>

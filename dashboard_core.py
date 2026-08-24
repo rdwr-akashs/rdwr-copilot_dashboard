@@ -27,6 +27,7 @@ try:
 except Exception:  # pragma: no cover - non-Linux platforms
     fcntl = None
 
+import diagnostics
 from dashboard_utils import *
 from token_usage import *
 from model_pricing import *
@@ -39,7 +40,13 @@ from compact_cache import *
 from full_cache import *
 from full_cache import _FULL_SESSION_DIRS, _FULL_SESSION_INDEX, _process_session_work_item
 from html_generation import generate_html
-from cli_usage import build_cli_dashboard_data, default_cli_db_path, default_cli_otel_paths, empty_cli_payload
+from cli_usage import (
+  build_cli_dashboard_data,
+  default_cli_db_path,
+  default_cli_otel_paths,
+  empty_cli_payload,
+  REASON_QUERY_FAILED,
+)
 from usage_model import records_from_chat_sessions, records_from_cli, build_unified
 from premium_requests import load_config as load_premium_config, build_budget, get_multiplier, MULTIPLIERS, PLAN_ALLOWANCES
 from insights_engine import build_insights_with_diagnostics
@@ -440,6 +447,11 @@ def compose_app_data(
     (``write_dashboard``) and the live HTTP server call it, so neither can
     drift out of sync when a new stage is added here.
     """
+    # Cleared per composition so findings never outlive the rebuild that caused
+    # them: the live server re-composes on a fingerprint change, and a stale
+    # "cache corrupt" banner after the cache was repaired would be its own bug.
+    diagnostics.reset()
+
     resolved_log_dirs = log_dirs or discover_log_dirs()
     if not resolved_log_dirs:
         raise RuntimeError("Could not find Copilot debug logs. Set COPILOT_DEBUG_LOGS or pass log directories explicitly.")
@@ -456,8 +468,24 @@ def compose_app_data(
         cli_db_path or default_cli_db_path(),
         otel_log_paths=cli_otel_log_paths if cli_otel_log_paths is not None else default_cli_otel_paths(),
       )
-    except Exception:
-      app_data["cli"] = empty_cli_payload(cli_db_path)
+    except Exception as exc:
+      # Degrading to an empty CLI block keeps the rest of the dashboard usable,
+      # which is the right call - but the CLI figures are the *exact* ones, so
+      # losing them must never be silent, and must not be mistaken for "this
+      # user has never run the CLI". `build_cli_dashboard_data` raises rather
+      # than returning on a schema/query failure (its cursor block is
+      # try/finally with no except), so that lands here.
+      diagnostics.report(
+        diagnostics.CODE_CLI_QUERY_FAILED,
+        (
+          "Reading the Copilot CLI database failed, so exact billed CLI costs "
+          f"are missing from the totals shown: {exc}"
+        ),
+        severity="error",
+        impact="cost",
+        source=str(cli_db_path or default_cli_db_path() or ""),
+      )
+      app_data["cli"] = empty_cli_payload(cli_db_path, REASON_QUERY_FAILED, str(exc))
 
     # Unified backend usage model + premium-request/budget accounting. Purely
     # additive: failures degrade to empty structures rather than breaking the
@@ -557,6 +585,23 @@ def compose_app_data(
         app_data["_errors"] = (app_data.get("_errors") or []) + [f"anonymize: {exc!r}"]
     else:
       app_data["anonymized"] = False
+
+    # `_errors` predates this channel and was written in three places but read
+    # nowhere - not by the frontend, and `compact_app_data_for_html` drops
+    # unlisted keys anyway, so it never even reached the HTML. Folding it in
+    # here means there is one place to look instead of one visible channel and
+    # one write-only one.
+    for message in app_data.get("_errors") or []:
+      diagnostics.report(
+        diagnostics.CODE_LOG_PARSE_FAILED,
+        str(message),
+        severity="warning",
+        impact="presentation",
+        source="app_data._errors",
+      )
+
+    # Attached last so it captures every stage above, including anonymization.
+    app_data["diagnostics"] = diagnostics.as_dict()
 
     return app_data
 

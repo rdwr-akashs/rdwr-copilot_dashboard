@@ -52,6 +52,7 @@ The dashboard also infers **internal segments** inside a chat. A new segment sta
 Remote import/sync (server → server over SSH) also requires:
 
 - `paramiko` (`pip install paramiko`)
+- SSH key or agent access to the remote host, and its host key already in `known_hosts` (no password auth — see [How remote sync behaves](#how-remote-sync-behaves-md5-based))
 
 ## Enable Copilot Chat debug logging (do this first)
 
@@ -203,35 +204,44 @@ The `remote_start.sh` helper wraps that mode for convenience and defaults to pol
 You can also import a remote source directly from CLI (startup import + verify + download):
 
 ```bash
-python3 serve_dashboard.py --remote "10.26.33.35,itayb,myPassword,/home/itayb/.vscode-server/data/User/workspaceStorage/abc/GitHub.copilot-chat/debug-logs,22"
+python3 serve_dashboard.py --remote "10.26.33.35,itayb,/home/itayb/.vscode-server/data/User/workspaceStorage/abc/GitHub.copilot-chat/debug-logs,22"
 ```
 
-> ⚠️ CLI password warning: values passed in command arguments can appear in shell history and process listings.
+The spec is `IP,USERNAME,PATH[,PORT]` — **no password field.** Authentication is
+SSH key/agent only, and the host key must already be known. Set that up once:
 
-## Import remote logs from the dashboard UI (MD5-based sync)
+```bash
+ssh-copy-id itayb@10.26.33.35     # if the key is not installed yet
+ssh itayb@10.26.33.35             # accept + record the host key in known_hosts
+```
 
-When running `serve_dashboard.py`, the dashboard header now includes **Import remote logs**.
+Passwords were removed rather than made optional, for two reasons: anything in
+`argv` shows up in shell history and in any process listing on the machine, and
+a stored password had to be written to disk for the periodic re-sync to work.
+Key auth needs neither. If you pass an old password-bearing spec, the server
+rejects it with an explanation instead of misparsing it.
 
-1. Click **Import remote logs**.
-2. Enter:
-  - IP/host
-  - username
-  - password
-  - remote debug-log path
-  - optional SSH port (default `22`)
-3. Submit.
+Host keys are verified against `known_hosts` (paramiko `RejectPolicy`). An
+unknown host is a hard error, not a first-contact trust — so an impersonating
+host fails loudly rather than silently serving you someone else's logs.
 
-Server behavior:
+## How remote sync behaves (MD5-based)
+
+Remote sources are configured with the `--remote` flag shown above. There is no
+in-dashboard import UI — remote sync is CLI-configured only.
+
+Once a source is registered, the server:
 
 - connects over SSH
 - verifies login and that the remote path exists and is a directory
 - computes a recursive MD5 for the remote folder
 - downloads to local cache on first import
 - stores the MD5
-- periodically recomputes remote MD5
-- downloads again only if MD5 changed
+- periodically recomputes the remote MD5 (see `--remote-poll-seconds`)
+- downloads again only if the MD5 changed
 
-The modal also shows per-source status, last MD5, last check time, and last download time.
+Per-source status, last MD5, last check time, and last download time are tracked
+in the metadata file described below.
 
 ### Where remote metadata/cache is stored
 
@@ -244,8 +254,10 @@ You can override this root directory:
 python3 serve_dashboard.py --remote-cache-dir /srv/copilot-remote-sync
 ```
 
-> ⚠️ Security note: remote credentials are stored locally in `sources.json` so periodic sync can reconnect.
-> Restrict file access to trusted operators and host accounts.
+`sources.json` holds only non-secret connection metadata — host, port, username,
+remote path, last MD5 and sync timestamps. No password or key material is
+written there. If the file was created by an older build that did store a
+password, re-adding the source (`--remote ...`) strips it.
 
 ## Share it from another machine
 
@@ -401,6 +413,7 @@ Common approaches:
 - `dashboard_core.py` — parsing, cost estimation, aggregation, and HTML generation
 - `cli_usage.py` — Copilot CLI `session-store.db` reader (exact billed costs) and OTel span/metric parsing
 - `model_pricing.py` — the published per-model rate table used as the estimation fallback
+- `diagnostics.py` — collects parse/cache failures and carries them to the UI, so a dropped session shows up as a warning instead of a quietly lower total
 - `generate_dashboard.py` — CLI entrypoint for static HTML generation
 - `serve_dashboard.py` — live HTTP server that regenerates the dashboard on request
 - `remote_start.sh` — cache-only remote launcher that writes compact/full caches without serving HTML
@@ -452,4 +465,14 @@ http://127.0.0.1:8765/dashboard.html
 
 **Remote import fails to connect.**
 
-- Ensure `paramiko` is installed (`pip install paramiko`) and that the remote path exists and is a directory reachable over SSH with the given credentials/port.
+- Ensure `paramiko` is installed (`pip install paramiko`) and that the remote path exists and is a directory reachable over SSH on the given port.
+- `Server ... not found in known_hosts` means the host key has never been recorded. Connect once interactively (`ssh USERNAME@IP`) and accept the key, then retry. This is deliberate: unknown hosts are rejected rather than trusted on first contact.
+- `Authentication failed` with no password prompt is expected — remote sync is key/agent only. Confirm `ssh USERNAME@IP` succeeds without typing a password (`ssh-copy-id` installs the key), or that your agent holds the key (`ssh-add -l`).
+- `Remote sources no longer take a PASSWORD field` means the `--remote` spec still has the old 4/5-field shape. Drop the password: `IP,USERNAME,PATH[,PORT]`.
+
+**The dashboard shows "Totals on this page may be understated."**
+
+- A cache entry or log file could not be read while building, so whatever it contained is missing from every figure. Open **Info → Telemetry → Data collection problems** for the specific files and reasons.
+- `cache.corrupt` / `cache.checksum_mismatch` usually mean a cache file was truncated (interrupted write, full disk). Re-run with `--force-recalculate` to rebuild it from the raw logs.
+- On the server, the same list is available as JSON at `/api/status` under `diagnostics` and `diagnosticsSummary`.
+- Entries marked `none` (for example `otel.line_skipped`) never affect cost and do not raise the banner.

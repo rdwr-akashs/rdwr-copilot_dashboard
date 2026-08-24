@@ -8,6 +8,8 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
+import diagnostics
+
 from model_pricing import (
     AIU_USD,
     TOKEN_TYPES,
@@ -607,6 +609,18 @@ def parse_cli_otel_files(paths: list[str] | None) -> dict[str, Any]:
                     try:
                         entry = json.loads(line)
                     except Exception:
+                        # OTel is per-tool insight and a cross-check only; it can
+                        # never move a cost figure (see the README on the CLI OTel
+                        # exporter). Recorded at impact "none" so a half-flushed
+                        # JSONL tail stays visible without implying the totals are
+                        # wrong - the banner keys on cost impact, not severity.
+                        diagnostics.report(
+                            diagnostics.CODE_OTEL_LINE_SKIPPED,
+                            "Skipped an unparsable line in the CLI OTel log. Cost figures are unaffected.",
+                            severity="info",
+                            impact="none",
+                            source=path,
+                        )
                         continue
                     if not isinstance(entry, dict):
                         continue
@@ -689,7 +703,20 @@ def parse_cli_otel_files(paths: list[str] | None) -> dict[str, Any]:
                                 name, {"instrument": name, "unit": point_unit or unit, "raw": 0.0}
                             )
                             bucket["raw"] += value
-        except Exception:
+        except Exception as exc:
+            # Whole-file drop, not a single line: an unreadable export or an
+            # unexpected OTel envelope shape loses the entire per-tool
+            # cross-check for this file. Still impact "none" because OTel never
+            # moves a cost figure, but a warning rather than info - the tool
+            # breakdown and the OTel-vs-DB reconciliation will silently look
+            # thinner than reality, and only this says why.
+            diagnostics.report(
+                diagnostics.CODE_OTEL_FILE_SKIPPED,
+                f"Could not read the CLI OTel log, so its per-tool breakdown is missing. Cost figures are unaffected: {exc}",
+                severity="warning",
+                impact="none",
+                source=path,
+            )
             continue
 
     tools_out = sorted(
@@ -826,15 +853,38 @@ def _reconcile_otel(
     }
 
 
-def empty_cli_payload(db_path: str | None) -> dict[str, Any]:
+# Why the `cli` block came back unavailable. Consumed by the UI to explain
+# itself; see `empty_cli_payload`. Defined above it because it supplies the
+# default argument, which is evaluated at definition time.
+REASON_DB_ABSENT = "db_absent"          # never used the CLI - benign, stay quiet
+REASON_DB_LOCKED = "db_locked"          # in use by another process - retryable
+REASON_DB_UNREADABLE = "db_unreadable"  # exists, cannot be opened at all
+REASON_QUERY_FAILED = "query_failed"    # opened, but the schema/query broke
+
+
+def empty_cli_payload(
+    db_path: str | None,
+    reason: str = REASON_DB_ABSENT,
+    reason_detail: str = "",
+) -> dict[str, Any]:
     """The `cli` block for "no usable session-store.db", in the full shape.
 
     Every key the front-end and the compact-cache writer read has to be present
     even when there is nothing to report, so they can render "unavailable"
     instead of tripping over a missing key.
+
+    `available: False` alone cannot distinguish three very different situations:
+    the user has never run the CLI (entirely normal), the database is locked by
+    a running `copilot` process (transient, worth retrying), or a query failed
+    against an unexpected schema (a bug worth reporting). Since CLI figures are
+    the *exact* ones, "we could not read your billing data" must not look like
+    "you have no billing data". `reason` carries that distinction to the UI;
+    `available` keeps its old meaning for existing callers.
     """
     return {
         "available": False,
+        "reason": reason,
+        "reasonDetail": reason_detail,
         "dbPath": db_path,
         "sessions": [],
         "byModel": [],
@@ -898,7 +948,9 @@ def build_cli_dashboard_data(
     now = datetime.fromtimestamp(float(now_ms) / 1000.0) if now_ms else datetime.now()
     resolved_db_path = db_path or default_cli_db_path()
     if not resolved_db_path or not os.path.isfile(resolved_db_path):
-        return empty_cli_payload(resolved_db_path)
+        # No database at all: the overwhelmingly common cause is simply never
+        # having used the CLI. Benign, and deliberately not a diagnostic.
+        return empty_cli_payload(resolved_db_path, REASON_DB_ABSENT)
 
     try:
         # Read-only URI connection avoids taking a write lock on the live CLI DB.
@@ -906,8 +958,23 @@ def build_cli_dashboard_data(
     except Exception:
         try:
             con = sqlite3.connect(resolved_db_path, timeout=5)
-        except Exception:
-            return empty_cli_payload(resolved_db_path)
+        except Exception as exc:
+            # The file is on disk but will not open. Distinguish "locked by a
+            # running copilot process" (retryable) from anything else, because
+            # the advice differs and both used to look like "no CLI data".
+            locked = "lock" in str(exc).lower() or isinstance(exc, sqlite3.OperationalError)
+            reason = REASON_DB_LOCKED if locked else REASON_DB_UNREADABLE
+            diagnostics.report(
+                diagnostics.CODE_CLI_DB_LOCKED if locked else diagnostics.CODE_CLI_QUERY_FAILED,
+                (
+                    "Could not open the Copilot CLI database, so exact billed CLI "
+                    f"costs are missing from the totals: {exc}"
+                ),
+                severity="error",
+                impact="cost",
+                source=resolved_db_path,
+            )
+            return empty_cli_payload(resolved_db_path, reason, str(exc))
 
     try:
         cur = con.cursor()

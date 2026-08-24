@@ -622,6 +622,29 @@
       border-radius: 4px;
       padding: 1px 5px;
     }
+
+    /* Build-time diagnostics banner (web/js/diagnostics.js). Rendered inside
+       the header, above everything, and only when a cost-bearing read failed -
+       an understated total is the one error this dashboard cannot let pass
+       quietly. Red-tinted rather than the yellow used for advisory notes. */
+    .diagnostics-banner {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: rgba(248, 81, 73, 0.10);
+      border: 1px solid rgba(248, 81, 73, 0.38);
+      line-height: 1.55;
+    }
+    .diagnostics-banner__icon { font-size: 1.15rem; line-height: 1.35; }
+    .diagnostics-banner__body { flex: 1; min-width: 0; }
+    .diagnostics-banner code {
+      background: var(--overlay-06);
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
     .analysis-grid { display: grid; gap: 18px; }
     .analysis-subtabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
     .subtab-button { border: 1px solid var(--border); background: var(--panel-2); color: var(--text); border-radius: 999px; padding: 8px 12px; cursor: pointer; }

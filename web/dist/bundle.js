@@ -1982,6 +1982,105 @@ ${body}` : header;
     URL.revokeObjectURL(url);
   }
 
+  // web/js/diagnostics.js
+  var DISMISS_KEY = "copilot-dashboard-dismissed-diagnostics-v1";
+  var EMPTY_SUMMARY = { total: 0, errors: 0, warnings: 0, costImpacting: 0 };
+  function diagnosticsPayload() {
+    const payload = APP_DATA.diagnostics;
+    if (!payload || typeof payload !== "object") return { entries: [], summary: EMPTY_SUMMARY };
+    return {
+      entries: Array.isArray(payload.entries) ? payload.entries : [],
+      summary: payload.summary && typeof payload.summary === "object" ? payload.summary : EMPTY_SUMMARY
+    };
+  }
+  function costImpactingDiagnostics() {
+    return diagnosticsPayload().entries.filter((entry) => entry && entry.impact === "cost");
+  }
+  function diagnosticsSignature(entries) {
+    return entries.map((entry) => `${entry.code}@${entry.source || ""}#${entry.count || 1}`).sort().join("|");
+  }
+  function readDismissedSignature() {
+    try {
+      return localStorage.getItem(DISMISS_KEY) || "";
+    } catch (_err) {
+      return "";
+    }
+  }
+  function dismissDiagnosticsBanner() {
+    const entries = costImpactingDiagnostics();
+    try {
+      localStorage.setItem(DISMISS_KEY, diagnosticsSignature(entries));
+    } catch (_err) {
+    }
+    renderApp();
+  }
+  function severityColor(severity) {
+    if (severity === "error") return "var(--red)";
+    if (severity === "warning") return "var(--yellow)";
+    return "var(--muted)";
+  }
+  function occurrenceSuffix(count) {
+    const total = Number(count || 1);
+    return total > 1 ? ` <span class="note small">(${formatInteger(total)}x)</span>` : "";
+  }
+  function renderDiagnosticsBanner() {
+    const entries = costImpactingDiagnostics();
+    if (!entries.length) return "";
+    if (readDismissedSignature() === diagnosticsSignature(entries)) return "";
+    const affected = entries.reduce((total, entry) => total + Number(entry.count || 1), 0);
+    const headline = entries.length === 1 ? "1 data source failed to load" : `${formatInteger(entries.length)} data sources failed to load`;
+    return `
+        <div class="diagnostics-banner" role="alert">
+          <span class="diagnostics-banner__icon" aria-hidden="true">\u26A0\uFE0F</span>
+          <div class="diagnostics-banner__body">
+            <strong>Totals on this page may be understated.</strong>
+            ${escapeHtml(headline)} while building this dashboard${affected > entries.length ? ` (${formatInteger(affected)} occurrences)` : ""}, so
+            whatever they contained is missing from every figure shown.
+            <div class="note small" style="margin-top:4px">
+              Full details in <strong>Info \u2192 Telemetry</strong>. Re-running with
+              <code>--force-recalculate</code> rebuilds the cache from the raw logs.
+            </div>
+          </div>
+          <button type="button" class="action-chip" onclick="dismissDiagnosticsBanner()" title="Hide until something different fails">Dismiss</button>
+        </div>`;
+  }
+  function renderDiagnosticsPanel() {
+    const { entries, summary } = diagnosticsPayload();
+    if (!entries.length) {
+      return `
+          <section class="panel">
+            <h2 class="section-title">Data collection problems</h2>
+            <div class="section-subtitle">None. Every cache entry and log file read cleanly for this build, so no session is missing from the totals below.</div>
+          </section>`;
+    }
+    const costCount = Number(summary.costImpacting || 0);
+    const lead = costCount ? `<strong style="color:var(--red)">${formatInteger(costCount)} of these affect cost figures</strong> - the sessions behind them are missing from every total on this dashboard.` : "None of these affect cost figures; the totals on this dashboard are complete.";
+    return `
+        <section class="panel">
+          <h2 class="section-title">Data collection problems</h2>
+          <div class="section-subtitle">Failures recorded while building this dashboard. ${lead}</div>
+          <table class="compact-prices-table">
+            <thead>
+              <tr>
+                <th>Impact</th>
+                <th>Code</th>
+                <th>What happened</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${entries.map((entry) => `
+                <tr>
+                  <td><span class="badge ${entry.impact === "cost" ? "boundary" : "source"}">${escapeHtml(entry.impact === "cost" ? "cost" : entry.impact || "none")}</span></td>
+                  <td><code style="color:${severityColor(entry.severity)}">${escapeHtml(entry.code || "")}</code>${occurrenceSuffix(entry.count)}</td>
+                  <td>${escapeHtml(entry.message || "")}</td>
+                  <td class="note small" style="word-break:break-all">${escapeHtml(entry.source || "-")}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </section>`;
+  }
+
   // web/js/charts.js
   function renderMonthlyTrendChart(rows, metricKey) {
     const metrics = monthlyTrendMetricConfig();
@@ -4254,6 +4353,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
     const telemetry = activeAnalysis().telemetry || { sections: [], observedFields: [], entryTypes: {} };
     return `
         <div class="analysis-grid">
+          ${renderDiagnosticsPanel()}
           <section class="panel">
             <h2 class="section-title">Telemetry coverage</h2>
             <div class="section-subtitle">What the current Copilot debug / OTel data gives directly, and what the dashboard must estimate.</div>
@@ -4356,6 +4456,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
     const themeIsLight = STATE.theme === "light";
     return `
         <section class="header">
+          ${renderDiagnosticsBanner()}
           <div class="header-top">
             <div>
               <h1>\u{1F4CA} Copilot Usage Explorer ${anonymizedBadge}</h1>
@@ -4445,6 +4546,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
     closeModelCompareModal,
     deleteCliSessionPrompt,
     deleteSessionPrompt,
+    dismissDiagnosticsBanner,
     exportCliSessionToJson,
     exportSessionToJson,
     exportToJson,

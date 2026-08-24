@@ -102,6 +102,30 @@ def test_compact_app_data_for_html_preserves_insights():
     assert compacted["insights"] == app_data["insights"]
 
 
+def test_compact_app_data_for_html_preserves_diagnostics():
+    # The worst possible key to drop here. If `diagnostics` does not survive the
+    # compaction, the static-HTML dashboard silently claims a clean run while
+    # its totals are understated - which is precisely the failure mode
+    # diagnostics.py was added to end.
+    app_data = _app_data_with_unified_and_premium()
+    app_data["diagnostics"] = {
+        "entries": [
+            {
+                "code": "cache.corrupt",
+                "message": "boom",
+                "severity": "error",
+                "impact": "cost",
+                "source": "/cache/a.json.zst",
+                "count": 2,
+            }
+        ],
+        "summary": {"total": 1, "errors": 1, "warnings": 0, "costImpacting": 1},
+    }
+    compacted = compact_app_data_for_html(app_data)
+    assert "diagnostics" in compacted
+    assert compacted["diagnostics"] == app_data["diagnostics"]
+
+
 def test_compact_app_data_for_html_provides_safe_defaults_when_keys_absent():
     # An older-shaped app_data (pre unified/premium/insights) must not crash
     # compact_app_data_for_html, and must still produce the new keys with
@@ -117,6 +141,10 @@ def test_compact_app_data_for_html_provides_safe_defaults_when_keys_absent():
     assert set(compacted["unified"].keys()) == UNIFIED_TOP_LEVEL_KEYS
     assert set(compacted["premium"].keys()) == PREMIUM_TOP_LEVEL_KEYS
     assert compacted["insights"] == []
+    assert compacted["diagnostics"] == {
+        "entries": [],
+        "summary": {"total": 0, "errors": 0, "warnings": 0, "costImpacting": 0},
+    }
 
 
 def test_insights_engine_module_exists_note():

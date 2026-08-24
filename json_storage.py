@@ -23,6 +23,7 @@ try:
 except Exception:  # pragma: no cover - non-Linux platforms
     fcntl = None
 
+import diagnostics
 from dashboard_utils import *
 
 COMPRESSED_CACHE_WORKERS = max(1, (os.cpu_count() or 1) // 2)
@@ -53,6 +54,9 @@ def _existing_json_path(path: str) -> str | None:
 
 
 def read_json_text(path: str) -> str | None:
+  # `resolved is None` means the file simply is not there, which is a normal
+  # cache miss - deliberately NOT reported. Everything below it means the file
+  # exists but could not be read, which silently drops real data.
   resolved = _existing_json_path(path)
   if resolved is None:
     return None
@@ -63,13 +67,27 @@ def read_json_text(path: str) -> str | None:
         check=True,
         capture_output=True,
       )
-    except Exception:
+    except Exception as exc:
+      diagnostics.report(
+        diagnostics.CODE_CACHE_CORRUPT,
+        f"Could not decompress a cached file, so its sessions are missing from the totals: {exc}",
+        severity="error",
+        impact="cost",
+        source=resolved,
+      )
       return None
     return completed.stdout.decode("utf-8", errors="ignore")
   try:
     with open(resolved, "r", encoding="utf-8", errors="ignore") as handle:
       return handle.read()
-  except Exception:
+  except Exception as exc:
+    diagnostics.report(
+      diagnostics.CODE_CACHE_UNREADABLE,
+      f"Could not read a cached file, so its sessions are missing from the totals: {exc}",
+      severity="error",
+      impact="cost",
+      source=resolved,
+    )
     return None
 
 
@@ -81,10 +99,28 @@ def read_json_file(path: str) -> Any:
   if resolved and resolved.endswith(".zst"):
     expected = _read_checksum_text(resolved)
     if expected is not None and hashlib.sha256(raw_bytes).hexdigest() != expected:
+      # The bytes decompressed but do not match the checksum written beside
+      # them. Treated as an error rather than a miss: a torn or tampered cache
+      # entry is exactly the case that must never pass silently.
+      diagnostics.report(
+        diagnostics.CODE_CACHE_CHECKSUM_MISMATCH,
+        "A cached file failed its SHA256 check and was discarded, so its "
+        "sessions are missing from the totals.",
+        severity="error",
+        impact="cost",
+        source=resolved,
+      )
       return None
   try:
     return json.loads(raw_bytes.decode("utf-8", errors="strict"))
-  except Exception:
+  except Exception as exc:
+    diagnostics.report(
+      diagnostics.CODE_CACHE_BAD_JSON,
+      f"A cached file was not valid JSON, so its sessions are missing from the totals: {exc}",
+      severity="error",
+      impact="cost",
+      source=resolved or path,
+    )
     return None
 
 
@@ -107,7 +143,18 @@ def _read_checksum_text(path: str) -> str | None:
     try:
       with open(candidate, "r", encoding="utf-8", errors="ignore") as handle:
         text = handle.read().strip()
-    except Exception:
+    except Exception as exc:
+      # An unreadable sidecar leaves `expected` as None, which SKIPS
+      # verification entirely - so a corrupt entry would pass unchecked. The
+      # totals are not wrong because of this, but the guard that protects them
+      # is quietly off, which is worth saying out loud.
+      diagnostics.report(
+        diagnostics.CODE_CACHE_UNREADABLE,
+        f"Could not read a cache checksum file, so integrity checking was skipped for it: {exc}",
+        severity="warning",
+        impact="presentation",
+        source=candidate,
+      )
       continue
     if text:
       return text.split()[0]
@@ -125,13 +172,27 @@ def _read_json_bytes(path: str) -> bytes | None:
         check=True,
         capture_output=True,
       )
-    except Exception:
+    except Exception as exc:
+      diagnostics.report(
+        diagnostics.CODE_CACHE_CORRUPT,
+        f"Could not decompress a cached file, so its sessions are missing from the totals: {exc}",
+        severity="error",
+        impact="cost",
+        source=resolved,
+      )
       return None
     return completed.stdout
   try:
     with open(resolved, "rb") as handle:
       return handle.read()
-  except Exception:
+  except Exception as exc:
+    diagnostics.report(
+      diagnostics.CODE_CACHE_UNREADABLE,
+      f"Could not read a cached file, so its sessions are missing from the totals: {exc}",
+      severity="error",
+      impact="cost",
+      source=resolved,
+    )
     return None
 
 

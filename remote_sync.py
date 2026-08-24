@@ -146,7 +146,6 @@ class RemoteSyncManager:
         host: str,
         port: int,
         username: str,
-        password: str,
         remote_path: str,
     ) -> dict[str, Any]:
         source_id = stable_source_id(host, port, username, remote_path)
@@ -161,7 +160,11 @@ class RemoteSyncManager:
         source["host"] = host
         source["port"] = int(port)
         source["username"] = username
-        source["password"] = password
+        # No password is stored. Authentication is SSH key/agent only (see
+        # `_open_client`). Any password left in a sources.json written by an
+        # older build is dropped here rather than carried forward, so simply
+        # re-adding a source is enough to clean the file.
+        source.pop("password", None)
         source["path"] = remote_path
         source["local_cache_dir"] = os.path.join(self.cache_dir, source_id)
         source.setdefault("status", "new")
@@ -173,19 +176,30 @@ class RemoteSyncManager:
 
         host = str(source.get("host") or "")
         username = str(source.get("username") or "")
-        password = str(source.get("password") or "")
         port = int(source.get("port") or 22)
 
         client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        # Host keys are verified against the user's known_hosts. The previous
+        # AutoAddPolicy() accepted whatever key the far end presented on first
+        # contact, which means a machine-in-the-middle could impersonate the
+        # host and this code could not tell. RejectPolicy fails closed instead:
+        # an unknown host is an error the operator resolves once (by connecting
+        # with ssh, or adding the key to known_hosts), not a silent trust.
+        client.load_system_host_keys()
+        try:
+            client.load_host_keys(os.path.expanduser("~/.ssh/known_hosts"))
+        except OSError:
+            # No user known_hosts yet; the system file above may still cover it.
+            pass
+        client.set_missing_host_key_policy(paramiko.RejectPolicy())
+        # Key/agent authentication only - no password is accepted or stored.
         client.connect(
             hostname=host,
             port=port,
             username=username,
-            password=password or None,
             timeout=self.connect_timeout_seconds,
-            look_for_keys=not password,
-            allow_agent=not password,
+            look_for_keys=True,
+            allow_agent=True,
         )
         return client
 
@@ -292,7 +306,6 @@ class RemoteSyncManager:
         self,
         host: str,
         username: str,
-        password: str,
         remote_path: str,
         port: int = 22,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -311,7 +324,6 @@ class RemoteSyncManager:
                 host=host,
                 port=int(port or 22),
                 username=username,
-                password=password,
                 remote_path=remote_path,
             )
             sync_result = self._sync_source_locked(source)

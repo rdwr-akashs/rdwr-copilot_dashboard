@@ -82,6 +82,12 @@ dashboard_test.html
 .dashboard-cache/
 .copilot-logs-placeholder/
 
+# Remote-sync runtime state. Machine-specific and rewritten on every server
+# start (so a tracked copy makes the working tree dirty for no reason), and it
+# records the hosts/usernames/paths this install pulls logs from - an internal
+# inventory that does not belong in a shared repo.
+.remote-sync/
+
 # Test artifacts
 .pytest_cache/
 .coverage

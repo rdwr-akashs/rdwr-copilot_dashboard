@@ -233,6 +233,13 @@ class DashboardCache:
     def status(self) -> dict:
         with self._lock:
             app_data = self.app_data or {}
+            # Read diagnostics off the cached app_data rather than the live
+            # collector: app_data is the snapshot of the last completed
+            # rebuild, so /api/status always describes the build that produced
+            # the HTML currently being served. The collector is reset at the
+            # start of each rebuild and would report an empty set to anyone who
+            # asked mid-rebuild.
+            diags = app_data.get("diagnostics") or {}
             return {
                 "lastRebuildAt": (
                     formatdate(self.last_rebuild_ts, usegmt=True) if self.last_rebuild_ts else None
@@ -246,6 +253,11 @@ class DashboardCache:
                 "etag": self.etag,
                 "appDataKeys": sorted(app_data.keys()),
                 "anonymized": bool(app_data.get("anonymized", False)),
+                "diagnostics": diags.get("entries", []),
+                "diagnosticsSummary": diags.get(
+                    "summary",
+                    {"total": 0, "errors": 0, "warnings": 0, "costImpacting": 0},
+                ),
             }
 
 
@@ -262,21 +274,44 @@ def merge_log_dirs(*groups: list[str]) -> list[str]:
     return merged
 
 
-def parse_remote_spec(spec: str) -> tuple[str, str, str, str, int]:
-    parts = [item.strip() for item in (spec or "").split(",", 4)]
-    if len(parts) not in {4, 5}:
-        raise ValueError("Remote source must be: IP,USERNAME,PASSWORD,PATH[,PORT]")
+_SPEC_FORMAT = "IP,USERNAME,PATH[,PORT]"
 
-    host, username, password, remote_path = parts[:4]
+# The old spec carried a PASSWORD in the third field. It was dropped because
+# argv is visible in shell history and in any process listing on the machine,
+# and remote sync now authenticates with SSH keys/agent only. A legacy spec is
+# still recognised here purely so it can be rejected with an explanation
+# instead of a baffling "path must be absolute" further down.
+_LEGACY_SPEC_ERROR = (
+    "Remote sources no longer take a PASSWORD field: use "
+    f"{_SPEC_FORMAT} and SSH key authentication. Passwords were removed because "
+    "argv is visible in shell history and process listings. Verify your key "
+    "works first with: ssh USERNAME@IP"
+)
+
+
+def parse_remote_spec(spec: str) -> tuple[str, str, str, int]:
+    parts = [item.strip() for item in (spec or "").split(",", 4)]
+
+    # 3 fields is unambiguously the current format; 5 is unambiguously legacy.
+    # 4 is ambiguous (IP,USER,PATH,PORT vs IP,USER,PASSWORD,PATH), so decide on
+    # which field looks like the absolute remote path.
+    if len(parts) == 5:
+        raise ValueError(_LEGACY_SPEC_ERROR)
+    if len(parts) == 4 and not parts[2].startswith("/") and parts[3].startswith("/"):
+        raise ValueError(_LEGACY_SPEC_ERROR)
+    if len(parts) not in {3, 4}:
+        raise ValueError(f"Remote source must be: {_SPEC_FORMAT}")
+
+    host, username, remote_path = parts[:3]
     if not host or not username or not remote_path:
-        raise ValueError("Remote source missing required fields. Format: IP,USERNAME,PASSWORD,PATH[,PORT]")
+        raise ValueError(f"Remote source missing required fields. Format: {_SPEC_FORMAT}")
     if not remote_path.startswith("/"):
         raise ValueError("Remote path must be absolute (start with '/').")
 
     port = 22
-    if len(parts) == 5 and parts[4]:
-        port = int(parts[4])
-    return host, username, password, remote_path, port
+    if len(parts) == 4 and parts[3]:
+        port = int(parts[3])
+    return host, username, remote_path, port
 
 
 class DashboardHandler(SimpleHTTPRequestHandler):
@@ -491,8 +526,11 @@ def main() -> None:
         "--remote",
         action="append",
         default=[],
-        metavar="IP,USERNAME,PASSWORD,PATH[,PORT]",
-        help="Add/import a remote source on startup. Warning: password will be visible in shell history.",
+        metavar="IP,USERNAME,PATH[,PORT]",
+        help=(
+            "Add/import a remote source on startup. Authentication is SSH key/agent only "
+            "(no password is accepted or stored), and the host must already be in known_hosts."
+        ),
     )
     parser.add_argument(
         "--remote-poll-seconds",
@@ -617,11 +655,10 @@ def main() -> None:
 
     for remote_spec in args.remote:
         try:
-            host, username, password, remote_path, port = parse_remote_spec(remote_spec)
+            host, username, remote_path, port = parse_remote_spec(remote_spec)
             source, sync_result = remote_manager.import_source(
                 host=host,
                 username=username,
-                password=password,
                 remote_path=remote_path,
                 port=port,
             )

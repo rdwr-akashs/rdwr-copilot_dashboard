@@ -23,6 +23,7 @@ try:
 except Exception:  # pragma: no cover - non-Linux platforms
     fcntl = None
 
+import diagnostics
 from dashboard_utils import *
 from token_usage import *
 from compact_files import *
@@ -343,8 +344,18 @@ def load_full_session_payload(session_id: str, cache_root_dir: str | None = None
           cache_key = build_session_cache_key(log_dir, raw_session_id, session_dir)
           full_path = cache_store.write_full_payload(cache_key, full_payload, session_id)
           _FULL_SESSION_INDEX[session_id] = full_path
-        except Exception:
-          pass
+        except Exception as exc:
+          # Only the re-cache failed; `full_payload` was parsed successfully and
+          # is returned below, so this view is correct and no total moves. The
+          # cost is that the next request re-parses the raw log instead of
+          # hitting the cache - slow, not wrong.
+          diagnostics.report(
+            diagnostics.CODE_CACHE_UNREADABLE,
+            f"Could not re-cache a session's full payload, so it will be re-parsed on every view: {exc}",
+            severity="warning",
+            impact="presentation",
+            source=session_dir,
+          )
         return full_payload
   return None
 
@@ -442,6 +453,17 @@ def _process_session_work_item(
         print(
           f"[copilot_dashboard] failed session processing for '{session_id}' in '{session_dir}' (cache_key={cache_key}): {exc}",
           file=sys.stderr,
+        )
+        # Returning None drops this session from the run entirely, so every
+        # total is lower than the truth by whatever it contained. The stderr
+        # line above is developer tracing on a stream nobody reading the
+        # dashboard sees; this is the same fact where the numbers are read.
+        diagnostics.report(
+          diagnostics.CODE_LOG_PARSE_FAILED,
+          f"A session could not be processed and is missing from every total: {exc}",
+          severity="error",
+          impact="cost",
+          source=session_dir,
         )
         return None
 

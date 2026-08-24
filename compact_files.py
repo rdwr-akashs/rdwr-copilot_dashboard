@@ -265,4 +265,10 @@ def compact_app_data_for_html(app_data: dict[str, Any]) -> dict[str, Any]:
     # identifiers and home paths with pseudonyms, so the UI can label the
     # dashboard honestly. Additive default (False) for older-shaped app_data.
     "anonymized": app_data.get("anonymized", False),
+    # Parse/cache failures recorded during this build (diagnostics.py). This
+    # pass-through is load-bearing: unlisted top-level keys are DROPPED here,
+    # so omitting it would make the static-HTML dashboard silently claim a
+    # clean run while the server path showed the warning. Empty default keeps
+    # older-shaped app_data safe.
+    "diagnostics": app_data.get("diagnostics", {"entries": [], "summary": {"total": 0, "errors": 0, "warnings": 0, "costImpacting": 0}}),
   }

@@ -202,6 +202,7 @@ def test_api_data_json_has_documented_top_level_keys(dashboard_server):
         "premium",
         "insights",
         "anonymized",
+        "diagnostics",
     }
     missing = required_keys - data.keys()
     assert not missing, f"app_data missing documented top-level keys: {sorted(missing)}"
@@ -230,6 +231,7 @@ def test_dashboard_html_embedded_app_data_has_documented_top_level_keys(dashboar
         "premium",
         "insights",
         "anonymized",
+        "diagnostics",
     }
     missing = required_keys - embedded.keys()
     assert not missing, f"embedded APP_DATA missing documented top-level keys: {sorted(missing)}"
@@ -256,6 +258,8 @@ def test_api_status_has_documented_fields(dashboard_server):
         "resolvedOtelPaths",
         "appDataKeys",
         "anonymized",
+        "diagnostics",
+        "diagnosticsSummary",
     ):
         assert key in data, f"missing /api/status field: {key}"
 
@@ -271,6 +275,18 @@ def test_api_status_has_documented_fields(dashboard_server):
     assert data["appDataKeys"] == sorted(data["appDataKeys"]), "appDataKeys is documented as sorted"
     assert isinstance(data["anonymized"], bool)
     assert data["anonymized"] is False  # not requested via --anonymize / COPILOT_DASHBOARD_ANONYMIZE here
+
+    # Diagnostics describe the build that produced the HTML currently being
+    # served, so they are read off the cached app_data rather than the live
+    # collector (which is reset at the start of every rebuild).
+    assert isinstance(data["diagnostics"], list)
+    assert set(data["diagnosticsSummary"]) == {"total", "errors", "warnings", "costImpacting"}
+    # The fixtures are well-formed, so a clean build must report nothing. A
+    # non-zero count here means a diagnostic is firing on healthy input, which
+    # is how a warning channel gets trained away as noise.
+    assert data["diagnosticsSummary"]["costImpacting"] == 0, (
+        f"clean fixtures produced cost-impacting diagnostics: {data['diagnostics']}"
+    )
 
 
 # --- /api/session -------------------------------------------------------------
@@ -442,6 +458,7 @@ def test_compose_app_data_returns_documented_keys(fake_debug_logs, fake_cli_db, 
         "premium",
         "insights",
         "anonymized",
+        "diagnostics",
     }
     missing = required_keys - app_data.keys()
     assert not missing, f"compose_app_data() missing documented top-level keys: {sorted(missing)}"
