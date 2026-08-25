@@ -36,6 +36,13 @@ COST_SOURCE_ESTIMATE = "estimate"
 EXACT_COST_SOURCES = (COST_SOURCE_BILLED, COST_SOURCE_RATES)
 
 
+# Calendar keys are computed in the machine's LOCAL timezone, matching
+# `usage_model.month_key_ms`, `global_calculations.month_key_from_timestamp` and
+# the front end's `monthKeyFromTimestamp` (which is local by construction) - one
+# convention everywhere beats a per-module mix. GitHub's own billing month is
+# UTC, so usage inside the local/UTC offset of a month boundary can land in the
+# adjacent month here relative to GitHub's invoice. That is a bounded,
+# documented skew (at most one day's usage at each boundary), not a silent one.
 def _month_key_from_epoch_ms(ts_ms: float | int | None) -> str | None:
     if not ts_ms:
         return None
@@ -219,7 +226,10 @@ def _cost_fields(accumulated: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _build_cli_period_bundle(sessions_subset: list[dict[str, Any]]) -> dict[str, Any]:
+def _build_cli_period_bundle(
+    sessions_subset: list[dict[str, Any]],
+    month_key: str | None = None,
+) -> dict[str, Any]:
     """Build a {"summary", "byModel"} bundle for a subset of CLI sessions_out rows.
 
     Mirrors the shape of the chat pipeline's period bundles closely enough
@@ -231,6 +241,20 @@ def _build_cli_period_bundle(sessions_subset: list[dict[str, Any]]) -> dict[str,
     the sum of what GitHub charged for each call in it, and re-pricing a
     month's worth of tokens in one go would throw that away (and silently mix
     tiers, promotions and discounts that differ call to call).
+
+    `month_key` ("YYYY-MM") restricts the bundle to the calls made in that
+    calendar month, read off each session's `callBuckets` (per day + model, from
+    `assistant_usage_events.created_at`). That distinction matters: a CLI session
+    left open across a month boundary bills into BOTH months, and keying the
+    filter off the session's own last-activity month - which is what this used to
+    do - moved the whole session's spend into whichever month it happened to end
+    in. The monthly figure feeds the AI-credit budget, so that was a real
+    mis-statement of a month's spend, not a display nicety.
+
+    `sessionCount`/`fileCount`/`toolCallCount` stay session-scoped: a session
+    counts for a month when it made at least one call in it, and its files and
+    tool calls come with it (neither carries a per-call timestamp usable for
+    finer attribution). Only token and cost figures are call-accurate.
     """
     model_totals: dict[str, dict[str, Any]] = collections.defaultdict(
         lambda: {
@@ -247,22 +271,31 @@ def _build_cli_period_bundle(sessions_subset: list[dict[str, Any]]) -> dict[str,
     total_cache_write = 0.0
     total_calls = 0
     total_tool_calls = 0
+    total_sessions = 0
     file_paths: set[str] = set()
 
     for session in sessions_subset:
-        _add_cost(totals, session)
-        total_input += float(session.get("input", 0.0) or 0.0)
-        total_input_billable += float(session.get("inputBillable", 0.0) or 0.0)
-        total_output += float(session.get("output", 0.0) or 0.0)
-        total_cached += float(session.get("cached", 0.0) or 0.0)
-        total_cache_write += float(session.get("cacheWrite", 0.0) or 0.0)
-        total_calls += int(session.get("callCount", 0) or 0)
+        rows = [
+            row for row in (session.get("callBuckets") or [])
+            if month_key is None or row.get("monthKey") == month_key
+        ]
+        if not rows:
+            continue
+        total_sessions += 1
         total_tool_calls += sum(int(tool.get("calls", 0) or 0) for tool in session.get("tools", []) or [])
         for file_row in session.get("files", []) or []:
             path = file_row.get("path")
             if path:
                 file_paths.add(path)
-        for row in session.get("modelBreakdown", []) or []:
+        for row in rows:
+            _add_cost(totals, row)
+            total_input += float(row.get("input", 0.0) or 0.0)
+            total_input_billable += float(row.get("inputBillable", 0.0) or 0.0)
+            total_output += float(row.get("output", 0.0) or 0.0)
+            total_cached += float(row.get("cached", 0.0) or 0.0)
+            total_cache_write += float(row.get("cacheWrite", 0.0) or 0.0)
+            total_calls += int(row.get("calls", 0) or 0)
+
             model_name = str(row.get("model") or "unknown")
             bucket = model_totals[model_name]
             bucket["input"] += float(row.get("input", 0.0) or 0.0)
@@ -293,7 +326,7 @@ def _build_cli_period_bundle(sessions_subset: list[dict[str, Any]]) -> dict[str,
     cost_fields = _cost_fields(totals)
     return {
         "summary": {
-            "sessionCount": len(sessions_subset),
+            "sessionCount": total_sessions,
             "callCount": total_calls,
             "totalInput": total_input,
             "totalOutput": total_output,
@@ -1079,6 +1112,12 @@ def build_cli_dashboard_data(
     per_session: dict[str, dict[str, Any]] = {}
     per_session_model: dict[tuple[str, str], dict[str, Any]] = collections.defaultdict(_new_token_bucket)
     model_totals: dict[str, dict[str, Any]] = collections.defaultdict(lambda: _new_token_bucket(with_session_ids=True))
+    # Keyed on (session, calendar day, model) from each event's own `created_at`.
+    # A CLI session can stay open for days and bill into several of them, so the
+    # session's last-activity day cannot stand in for when its calls were made -
+    # and the month that rolls up from these days is what the AI-credit budget
+    # measures. See `_build_cli_period_bundle`.
+    per_session_day_model: dict[tuple[str, str | None, str], dict[str, Any]] = collections.defaultdict(_new_token_bucket)
 
     for row in event_rows:
         session_id, turn_index, model, input_tokens, output_tokens, cache_read, cache_write, reasoning, duration_ms, created_at = row[:10]
@@ -1099,7 +1138,12 @@ def build_cli_dashboard_data(
             token_details_json,
         )
 
-        for bucket in (per_session_model[(session_id, model_name)], model_totals[model_name]):
+        created_ms = _iso_to_epoch_ms(created_at)
+        day_key = _day_key_from_epoch_ms(created_ms)
+        day_bucket = per_session_day_model[(session_id, day_key, model_name)]
+        day_bucket["lastTs"] = max(float(day_bucket.get("lastTs") or 0.0), created_ms or 0.0)
+
+        for bucket in (per_session_model[(session_id, model_name)], model_totals[model_name], day_bucket):
             bucket["input"] += float(input_tokens or 0)
             bucket["inputBillable"] += priced["counts"]["input"]
             bucket["output"] += float(output_tokens or 0)
@@ -1119,7 +1163,30 @@ def build_cli_dashboard_data(
         })
         entry["models"].add(model_name)
         entry["calls"] += 1
-        entry["lastActivity"] = max(entry["lastActivity"], _iso_to_epoch_ms(created_at))
+        entry["lastActivity"] = max(entry["lastActivity"], created_ms)
+
+    # Per-call buckets, rendered once per session so the period rollups and the
+    # unified model can both read them without re-walking the event rows.
+    buckets_by_session: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+    for (bucket_session_id, bucket_day, bucket_model), bucket in per_session_day_model.items():
+        buckets_by_session[bucket_session_id].append({
+            "dayKey": bucket_day,
+            "monthKey": bucket_day[:7] if bucket_day else None,
+            "model": bucket_model,
+            "calls": bucket["calls"],
+            "input": bucket["input"],
+            "inputBillable": bucket["inputBillable"],
+            "uncached": bucket["inputBillable"],
+            "output": bucket["output"],
+            "cached": bucket["cached"],
+            "cacheWrite": bucket["cacheWrite"],
+            "reasoning": bucket["reasoning"],
+            "durationMs": bucket["durationMs"],
+            "lastTs": float(bucket.get("lastTs") or 0.0),
+            **_cost_fields(bucket),
+        })
+    for rows in buckets_by_session.values():
+        rows.sort(key=lambda row: (row["dayKey"] or "", -row["cost"], row["model"]))
 
     sessions_out: list[dict[str, Any]] = []
     grand_totals = _new_cost_accumulator()
@@ -1179,6 +1246,7 @@ def build_cli_dashboard_data(
             "callCount": entry["calls"],
             "models": sorted(entry["models"]),
             "modelBreakdown": sorted(model_breakdown, key=lambda row: row["cost"], reverse=True),
+            "callBuckets": buckets_by_session.get(session_id, []),
             "input": session_input,
             "inputBillable": session_input_billable,
             "output": session_output,
@@ -1295,9 +1363,10 @@ def build_cli_dashboard_data(
             "allTime": _build_cli_period_bundle(sessions_out),
             "monthly": {
                 "monthKey": now.strftime("%Y-%m"),
-                **_build_cli_period_bundle(
-                    [s for s in sessions_out if s.get("monthKey") == now.strftime("%Y-%m")]
-                ),
+                # Every session is offered to the bundle, which then keeps only
+                # the calls this month owns - a session that started last month
+                # contributes the part of its spend that landed in this one.
+                **_build_cli_period_bundle(sessions_out, month_key=now.strftime("%Y-%m")),
             },
         },
     }

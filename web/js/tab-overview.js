@@ -2,7 +2,7 @@ import { unifiedFilteredBySourceKey, unifiedFilteredDailyRows } from './aggregat
 import { switchAnalysisTab, switchTab } from './actions.js';
 import { filterInsightsBySource } from './filters.js';
 import { renderUnifiedTrendChart } from './charts.js';
-import { escapeHtml, formatCompact, formatCost, formatCreditValue, formatInteger, formatPercent, pickTokenBlock } from './format.js';
+import { CREDIT_USD, escapeHtml, formatCompact, formatCost, formatCreditValue, formatInteger, formatPercent, pickTokenBlock } from './format.js';
 import { APP_DATA, STATE } from './state.js';
 
     // Maps a status ('ok'|'warn'|'critical') onto the CSS state-class
@@ -34,7 +34,7 @@ import { APP_DATA, STATE } from './state.js';
               <div class="note small">${escapeHtml(alert.detail || '')}</div>
             </div>`).join('')
         : '';
-      const creditUsd = Number(budget.creditUsd ?? 0.01);
+      const creditUsd = Number(budget.creditUsd ?? CREDIT_USD);
       return `
         <div class="panel">
           <div class="section-title">AI credit budget <span class="note small" style="font-weight:400">· plan ${escapeHtml(String(budget.plan || 'unknown'))}</span></div>

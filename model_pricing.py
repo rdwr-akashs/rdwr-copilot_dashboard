@@ -25,6 +25,8 @@ except Exception:  # pragma: no cover - non-Linux platforms
 
 from dashboard_utils import *
 
+import diagnostics
+
 import sys
 import time
 from datetime import datetime
@@ -321,6 +323,19 @@ def cost_from_token_counts(
     }
 
 
+def prompt_split_overflow(prompt_tokens: float, cache_read_tokens: float, cache_write_tokens: float) -> float:
+    """How many cache tokens a call claims *beyond* its own reported prompt size.
+
+    Zero on healthy telemetry. Anything above zero means the source contradicted
+    itself (see `split_prompt_tokens` on why the prompt counter is
+    all-inclusive), so the categories cannot all be billed as reported.
+    """
+    prompt = max(0.0, float(prompt_tokens or 0.0))
+    cache_read = max(0.0, float(cache_read_tokens or 0.0))
+    cache_write = max(0.0, float(cache_write_tokens or 0.0))
+    return max(0.0, cache_read + cache_write - prompt)
+
+
 def split_prompt_tokens(prompt_tokens: float, cache_read_tokens: float, cache_write_tokens: float) -> dict[str, float]:
     """Split an all-inclusive prompt counter into GitHub's billed categories.
 
@@ -332,11 +347,24 @@ def split_prompt_tokens(prompt_tokens: float, cache_read_tokens: float, cache_wr
     rate on top of the cache lines would double-bill it; charging
     `prompt - cache_read` at the input rate (what this repo used to do) bills
     cache writes at the input rate instead of the higher cache-write rate.
+
+    The split is therefore a PARTITION of the prompt, and it is enforced as one:
+    `cache_read + cache_write` is clamped so the three categories can never sum
+    past the reported prompt size. Without the clamp, telemetry that reports
+    more cached tokens than prompt tokens (which happens - a cache counter read
+    from a different call than the prompt counter) prices those extra tokens on
+    top of a prompt that never contained them, inflating the cost of the very
+    calls whose counters are least trustworthy. Clamping in reporting order
+    (cache reads first, then whatever prompt is left for cache writes) keeps the
+    cheaper, more reliably reported category intact and drops the excess from
+    the expensive one. `prompt_split_overflow()` reports how much was dropped so
+    a caller can surface it rather than silently absorb it.
     """
-    cache_read = max(0.0, float(cache_read_tokens or 0.0))
-    cache_write = max(0.0, float(cache_write_tokens or 0.0))
+    prompt = max(0.0, float(prompt_tokens or 0.0))
+    cache_read = min(max(0.0, float(cache_read_tokens or 0.0)), prompt)
+    cache_write = min(max(0.0, float(cache_write_tokens or 0.0)), prompt - cache_read)
     return {
-        "input": max(0.0, float(prompt_tokens or 0.0) - cache_read - cache_write),
+        "input": max(0.0, prompt - cache_read - cache_write),
         "cache_read": cache_read,
         "cache_write": cache_write,
     }
@@ -349,6 +377,7 @@ def calculate_cost(
     model_name: str | None,
     cache_write_tokens: float = 0.0,
     rates: dict[str, float] | None = None,
+    tier_prompt_tokens: float | None = None,
 ) -> dict[str, float]:
     """Price one call (or one aggregated bucket) from published rates.
 
@@ -363,15 +392,46 @@ def calculate_cost(
     `rates` lets a caller substitute the exact rates GitHub billed at instead
     of the published table.
 
+    `tier_prompt_tokens` separates "how many tokens am I pricing" from "how big
+    was the call GitHub priced". They differ whenever a caller prices a SUBSET
+    of a call's tokens - the chat pipeline's prompt-growth attribution prices
+    only the net-new tokens of each turn (see `per_chat_calculations.py`). The
+    long-context tier is a property of the whole call: GitHub bills every token
+    of a 300k-token prompt at the long-context rates, including the 5k that
+    happen to be new this turn. Leaving this None on such a caller would price
+    those tokens at the default tier and understate the call by the full
+    tier delta (for gpt-5.4, input 2.50 -> 5.00 and output 15.00 -> 22.50).
+    Defaults to `input_tokens`, which is correct for any caller pricing a whole
+    call.
+
     Keeps its original return keys - `uncached` still means "prompt tokens
     billed at the full input rate" - and adds `cacheWrite`, `costByType`,
     `tier`, and `rates`.
     """
+    overflow = prompt_split_overflow(input_tokens, cached_tokens, cache_write_tokens)
+    if overflow > 0:
+        # Not cosmetic: the clamp in `split_prompt_tokens` changed what got
+        # billed, so the figure differs from a naive reading of the raw
+        # counters. Reported per model so one broken model's telemetry is
+        # visible without drowning the list.
+        diagnostics.report(
+            diagnostics.CODE_PRICING_PROMPT_OVERFLOW,
+            (
+                "Telemetry reported more cached/cache-write tokens than prompt tokens for "
+                f"{model_name or 'unknown'}; the excess ({overflow:,.0f} tokens on at least one call) "
+                "is not billed, because the prompt counter is all-inclusive. Cost for these calls is "
+                "capped at pricing their whole reported prompt."
+            ),
+            severity="warning",
+            impact="cost",
+            source=str(model_name or "unknown"),
+        )
+
     counts = split_prompt_tokens(input_tokens, cached_tokens, cache_write_tokens)
     priced = cost_from_token_counts(
         {**counts, "output": float(output_tokens or 0.0)},
         model_name,
-        prompt_tokens=float(input_tokens or 0.0),
+        prompt_tokens=float((tier_prompt_tokens if tier_prompt_tokens is not None else input_tokens) or 0.0),
         rates=rates,
     )
     return {

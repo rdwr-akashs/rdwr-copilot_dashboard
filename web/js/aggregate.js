@@ -1,4 +1,4 @@
-import { addTokenBlock, cacheHitRateForBlock, cloneTokenBlock, currentMonthKey, formatCost, formatInteger, formatMonthLabelFromKey, formatPercent, monthKeyFromTimestamp, scaleTokenBlock, sessionOverheadForMode, sessionScaleFactors, tokenScaleFactors, zeroTokenBlock } from './format.js';
+import { addTokenBlock, cacheHitRateForBlock, cloneTokenBlock, creditsFromCost, currentMonthKey, formatCost, formatInteger, formatMonthLabelFromKey, formatPercent, monthKeyFromTimestamp, scaleTokenBlock, sessionOverheadForMode, sessionScaleFactors, tokenScaleFactors, zeroTokenBlock } from './format.js';
 import { currentFilters, filterSessions, filterUnifiedRows } from './filters.js';
 import { APP_DATA, STATE, isBilledMode, isCliSessionHidden, isSessionHidden } from './state.js';
 
@@ -140,7 +140,7 @@ import { APP_DATA, STATE, isBilledMode, isCliSessionHidden, isSessionHidden } fr
             contextResetCount: row.contextResetCount,
             totals: row.totals,
             cacheHitRate,
-            aiCredits: Number(row.totals.cost || 0) / 0.01,
+            aiCredits: creditsFromCost(row.totals.cost),
             peakPromptTokens: row.peakPromptTokens,
           };
         });
@@ -647,15 +647,39 @@ import { APP_DATA, STATE, isBilledMode, isCliSessionHidden, isSessionHidden } fr
       };
     }
 
+    // Per-month CLI session counts and cost, for the Analysis tab's monthly
+    // trend table. Cost comes from each session's per-day call buckets
+    // (`callBuckets`, from cli_usage.py) so a session that ran across the turn
+    // of the month contributes to both months instead of dropping its whole
+    // spend into whichever one it last touched. Session counts stay per
+    // session, counted once in every month it made a call in.
     export function cliMonthlyBuckets() {
       const cli = APP_DATA.cli || {};
       const map = {};
+      const bucketFor = (monthKey) => (
+        map[monthKey] || (map[monthKey] = { sessionCount: 0, cost: 0 })
+      );
       (cli.sessions || []).forEach((session) => {
+        const callRows = Array.isArray(session.callBuckets) && session.callBuckets.length
+          ? session.callBuckets
+          : null;
+        if (callRows) {
+          const months = new Set();
+          callRows.forEach((row) => {
+            const monthKey = row.monthKey || (row.dayKey ? String(row.dayKey).slice(0, 7) : null);
+            if (!monthKey) return;
+            bucketFor(monthKey).cost += Number(row.cost || 0);
+            months.add(monthKey);
+          });
+          months.forEach((monthKey) => { bucketFor(monthKey).sessionCount += 1; });
+          return;
+        }
+        // Older payloads carry no per-call buckets; the session's own month is
+        // the best they can support.
         const ts = session.lastActivity || session.updatedAt || session.createdAt;
         if (!ts) return;
         const d = new Date(ts);
-        const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        const bucket = map[monthKey] || (map[monthKey] = { sessionCount: 0, cost: 0 });
+        const bucket = bucketFor(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
         bucket.sessionCount += 1;
         bucket.cost += Number(session.cost || 0);
       });

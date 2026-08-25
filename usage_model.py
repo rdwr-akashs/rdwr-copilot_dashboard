@@ -216,20 +216,25 @@ def records_from_cli(
 ) -> list[dict[str, Any]]:
     """Build canonical usage records from `app_data["cli"]`.
 
-    CLI sessions only carry per-session+model aggregate totals (see
-    `cli_usage.py::build_cli_dashboard_data`), so one record is emitted per
-    `modelBreakdown` entry per session. `attributed` and `billed` are
-    populated identically since the CLI has no prompt-growth attribution
-    concept - only one raw billed total per model call bucket.
+    One record is emitted per `callBuckets` row - one calendar day and model
+    within a session (see `cli_usage.py::build_cli_dashboard_data`), timestamped
+    from the last call in that bucket. That granularity is what makes the daily
+    and monthly rollups here reflect when the spend actually happened: a CLI
+    session can stay open across days, and dating all of its calls from its last
+    activity moved a whole session's cost into one day. Payloads without
+    `callBuckets` (older caches) fall back to the per-session `modelBreakdown`
+    rows dated from the session, which is the historic behaviour.
 
-    Calls vs prompts: `modelBreakdown[].calls` counts model API calls, while
-    the session's `turnCount` counts the user's prompts - and an agentic CLI
-    session routinely spends hundreds of calls on a handful of prompts. Both
-    are recorded. Because `turnCount` is per session and not broken down by
-    model, a multi-model session's prompts are apportioned across its model
-    buckets in proportion to each bucket's share of the session's calls; that
-    is an estimate for the legacy premium-request figure only and never
-    affects token or cost totals.
+    `attributed` and `billed` are populated identically since the CLI has no
+    prompt-growth attribution concept - only one raw billed total per call.
+
+    Calls vs prompts: `calls` counts model API calls, while the session's
+    `turnCount` counts the user's prompts - and an agentic CLI session routinely
+    spends hundreds of calls on a handful of prompts. Both are recorded. Because
+    `turnCount` is per session and not broken down by model or day, a session's
+    prompts are apportioned across its buckets in proportion to each bucket's
+    share of the session's calls; that is an estimate for the legacy
+    premium-request figure only and never affects token or cost totals.
     """
     records: list[dict[str, Any]] = []
     if not cli_data or not cli_data.get("available"):
@@ -241,26 +246,37 @@ def records_from_cli(
         repository = session.get("repository")
         branch = session.get("branch")
         ts = session.get("lastActivity") or session.get("updatedAt") or session.get("createdAt") or 0
-        breakdown = session.get("modelBreakdown") or []
-        if not breakdown:
+        rows = session.get("callBuckets") or session.get("modelBreakdown") or []
+        if not rows:
             continue
-        session_calls = sum(float(row.get("calls", 0) or 0) for row in breakdown)
+        session_calls = sum(float(row.get("calls", 0) or 0) for row in rows)
         # A session with turns but no recorded turnCount still had at least the
         # one prompt that produced its calls; never let prompts round to zero.
         session_prompts = float(session.get("turnCount", 0) or 0) or (1.0 if session_calls else 0.0)
-        for model_row in breakdown:
+        for model_row in rows:
             model_name = str(model_row.get("model") or "unknown")
             calls = float(model_row.get("calls", 0) or 0)
             prompts = (session_prompts * (calls / session_calls)) if session_calls else 0.0
+            input_tokens = float(model_row.get("input", 0.0) or 0.0)
+            cached = float(model_row.get("cached", 0.0) or 0.0)
+            # `inputBillable` is what the pricing layer actually charged as
+            # uncached input: the prompt minus BOTH cache reads and cache
+            # writes. Deriving it as input - cached instead counts cache-write
+            # tokens twice over, once here and once in the cache-write column.
+            billable = model_row.get("inputBillable")
+            uncached = (
+                float(billable or 0.0) if billable is not None
+                else max(0.0, input_tokens - cached)
+            )
             block = {
-                "input": float(model_row.get("input", 0.0) or 0.0),
-                "cached": float(model_row.get("cached", 0.0) or 0.0),
-                "uncached": max(0.0, float(model_row.get("input", 0.0) or 0.0) - float(model_row.get("cached", 0.0) or 0.0)),
+                "input": input_tokens,
+                "cached": cached,
+                "uncached": uncached,
                 "output": float(model_row.get("output", 0.0) or 0.0),
                 "cost": float(model_row.get("cost", 0.0) or 0.0),
             }
             records.append({
-                "ts": int(ts or 0),
+                "ts": int(model_row.get("lastTs") or ts or 0),
                 "source": "cli",
                 "sessionId": session_id,
                 "model": model_name,

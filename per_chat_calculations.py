@@ -868,11 +868,20 @@ def parse_session(session_dir: str, analysis: dict[str, Any], asset_store: dict[
                             delta_input,
                             positive_diff(cached_tokens, previous_cached_tokens),
                         )
+                        # The growth block prices only this turn's net-new tokens,
+                        # but the long-context tier is a property of the whole
+                        # call: GitHub bills every token of an over-threshold
+                        # prompt at the tier rates, the new ones included. Pass
+                        # the real prompt size for tier selection so attributed
+                        # cost stays a reallocation of the same spend instead of
+                        # silently dropping to the default tier (which understated
+                        # long-context sessions by the full tier delta).
                         prompt_growth_tokens = calculate_cost(
                             delta_input,
                             output_tokens,
                             delta_cached,
                             model_name,
+                            tier_prompt_tokens=input_tokens,
                         )
                         attribution_tokens = billed_tokens if segment_start else prompt_growth_tokens
 

@@ -996,12 +996,26 @@
   function cliMonthlyBuckets() {
     const cli = APP_DATA.cli || {};
     const map = {};
+    const bucketFor = (monthKey) => map[monthKey] || (map[monthKey] = { sessionCount: 0, cost: 0 });
     (cli.sessions || []).forEach((session) => {
+      const callRows = Array.isArray(session.callBuckets) && session.callBuckets.length ? session.callBuckets : null;
+      if (callRows) {
+        const months = /* @__PURE__ */ new Set();
+        callRows.forEach((row) => {
+          const monthKey = row.monthKey || (row.dayKey ? String(row.dayKey).slice(0, 7) : null);
+          if (!monthKey) return;
+          bucketFor(monthKey).cost += Number(row.cost || 0);
+          months.add(monthKey);
+        });
+        months.forEach((monthKey) => {
+          bucketFor(monthKey).sessionCount += 1;
+        });
+        return;
+      }
       const ts = session.lastActivity || session.updatedAt || session.createdAt;
       if (!ts) return;
       const d = new Date(ts);
-      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      const bucket = map[monthKey] || (map[monthKey] = { sessionCount: 0, cost: 0 });
+      const bucket = bucketFor(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
       bucket.sessionCount += 1;
       bucket.cost += Number(session.cost || 0);
     });
@@ -3167,6 +3181,31 @@ _Estimates are local approximations derived from parsed usage data, not official
     );
   }
   var COST_TYPES = ["input", "cache_read", "cache_write", "output"];
+  function activeDateRange(filterState) {
+    var _a, _b, _c;
+    if (!filterState.active || typeof ((_a = filterState.cf) == null ? void 0 : _a.periodRange) !== "function") return null;
+    try {
+      const range = filterState.cf.periodRange();
+      if (!range) return null;
+      const start = (_b = range.start) != null ? _b : null;
+      const end = (_c = range.end) != null ? _c : null;
+      return start === null && end === null ? null : { start, end };
+    } catch (_err) {
+      return null;
+    }
+  }
+  function bucketInRange(bucket, range) {
+    const ts = Number(bucket.lastTs || 0);
+    if (!ts) return true;
+    if (range.start !== null && ts < range.start) return false;
+    if (range.end !== null && ts > range.end) return false;
+    return true;
+  }
+  function sessionRollupRows(session, range) {
+    const buckets = session.callBuckets;
+    if (!range || !Array.isArray(buckets) || !buckets.length) return session.modelBreakdown || [];
+    return buckets.filter((bucket) => bucketInRange(bucket, range));
+  }
   function zeroCostByType() {
     return { input: 0, cache_read: 0, cache_write: 0, output: 0 };
   }
@@ -3188,9 +3227,9 @@ _Estimates are local approximations derived from parsed usage data, not official
     bucket.credits = creditsFromCost(bucket.cost);
     return bucket;
   }
-  function computeCliSummaryFromSessions(sessions) {
+  function computeCliSummaryFromSessions(sessions, range) {
     const summary = {
-      sessionCount: sessions.length,
+      sessionCount: 0,
       callCount: 0,
       totalInput: 0,
       totalOutput: 0,
@@ -3207,14 +3246,19 @@ _Estimates are local approximations derived from parsed usage data, not official
     };
     const filePaths = /* @__PURE__ */ new Set();
     sessions.forEach((session) => {
-      summary.callCount += Number(session.callCount || 0);
-      summary.totalInput += Number(session.input || 0);
-      summary.totalOutput += Number(session.output || 0);
-      summary.totalCached += Number(session.cached || 0);
-      summary.totalCacheWrite += Number(session.cacheWrite || 0);
-      summary.totalInputBillable += Number(session.inputBillable || 0);
-      summary.premiumRequests += sessionPremiumRequests(session);
-      addCostProvenance(summary, session);
+      const rows = sessionRollupRows(session, range);
+      if (!rows.length) return;
+      summary.sessionCount += 1;
+      rows.forEach((row) => {
+        summary.callCount += Number(row.calls || 0);
+        summary.totalInput += Number(row.input || 0);
+        summary.totalOutput += Number(row.output || 0);
+        summary.totalCached += Number(row.cached || 0);
+        summary.totalCacheWrite += Number(row.cacheWrite || 0);
+        summary.totalInputBillable += Number(row.inputBillable || 0);
+        summary.premiumRequests += rowPromptCount(session, row) * premiumMultiplierForModel(row.model);
+        addCostProvenance(summary, row);
+      });
       (session.files || []).forEach((file) => filePaths.add(file.path));
       (session.tools || []).forEach((tool) => {
         summary.toolCallCount += Number(tool.calls || 0);
@@ -3227,10 +3271,10 @@ _Estimates are local approximations derived from parsed usage data, not official
     summary.totalCredits = summary.credits;
     return summary;
   }
-  function computeCliByModelFromSessions(sessions) {
+  function computeCliByModelFromSessions(sessions, range) {
     const map = /* @__PURE__ */ new Map();
     sessions.forEach((session) => {
-      (session.modelBreakdown || []).forEach((row) => {
+      sessionRollupRows(session, range).forEach((row) => {
         const key = row.model;
         const bucket = map.get(key) || {
           model: key,
@@ -3262,28 +3306,56 @@ _Estimates are local approximations derived from parsed usage data, not official
   }
   function buildCliTrendRows(sessions, granularity) {
     const buckets = /* @__PURE__ */ new Map();
+    const bucketFor = (key) => {
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        bucket = {
+          input: 0,
+          uncached: 0,
+          cached: 0,
+          output: 0,
+          cost: 0,
+          sessionIds: /* @__PURE__ */ new Set(),
+          callCount: 0,
+          toolCallCount: 0
+        };
+        buckets.set(key, bucket);
+      }
+      return bucket;
+    };
     sessions.forEach((session) => {
-      const key = granularity === "daily" ? session.dayKey : session.monthKey;
-      if (!key) return;
-      const bucket = buckets.get(key) || {
-        input: 0,
-        uncached: 0,
-        cached: 0,
-        output: 0,
-        cost: 0,
-        sessionCount: 0,
-        callCount: 0,
-        toolCallCount: 0
-      };
-      bucket.input += Number(session.input || 0);
-      bucket.uncached += Number(session.uncached || 0);
-      bucket.cached += Number(session.cached || 0);
-      bucket.output += Number(session.output || 0);
-      bucket.cost += Number(session.cost || 0);
-      bucket.sessionCount += 1;
-      bucket.callCount += Number(session.callCount || 0);
-      bucket.toolCallCount += (session.tools || []).reduce((sum, tool) => sum + Number(tool.calls || 0), 0);
-      buckets.set(key, bucket);
+      const callRows = Array.isArray(session.callBuckets) && session.callBuckets.length ? session.callBuckets : null;
+      if (callRows) {
+        callRows.forEach((row) => {
+          var _a, _b;
+          const key = granularity === "daily" ? row.dayKey : row.monthKey;
+          if (!key) return;
+          const bucket = bucketFor(key);
+          bucket.input += Number(row.input || 0);
+          bucket.uncached += Number((_b = (_a = row.uncached) != null ? _a : row.inputBillable) != null ? _b : 0);
+          bucket.cached += Number(row.cached || 0);
+          bucket.output += Number(row.output || 0);
+          bucket.cost += Number(row.cost || 0);
+          bucket.callCount += Number(row.calls || 0);
+          bucket.sessionIds.add(session.id);
+        });
+      } else {
+        const key = granularity === "daily" ? session.dayKey : session.monthKey;
+        if (key) {
+          const bucket = bucketFor(key);
+          bucket.input += Number(session.input || 0);
+          bucket.uncached += Number(session.uncached || 0);
+          bucket.cached += Number(session.cached || 0);
+          bucket.output += Number(session.output || 0);
+          bucket.cost += Number(session.cost || 0);
+          bucket.callCount += Number(session.callCount || 0);
+          bucket.sessionIds.add(session.id);
+        }
+      }
+      const sessionKey = granularity === "daily" ? session.dayKey : session.monthKey;
+      if (sessionKey) {
+        bucketFor(sessionKey).toolCallCount += (session.tools || []).reduce((sum, tool) => sum + Number(tool.calls || 0), 0);
+      }
     });
     return [...buckets.keys()].sort().map((key) => {
       const bucket = buckets.get(key);
@@ -3291,7 +3363,7 @@ _Estimates are local approximations derived from parsed usage data, not official
         monthKey: key,
         label: key,
         totals: { input: bucket.input, uncached: bucket.uncached, cached: bucket.cached, output: bucket.output, cost: bucket.cost },
-        sessionCount: bucket.sessionCount,
+        sessionCount: bucket.sessionIds.size,
         chatCallCount: bucket.callCount,
         toolCallCount: bucket.toolCallCount,
         cacheHitRate: bucket.input ? bucket.cached / bucket.input * 100 : 0
@@ -3620,9 +3692,10 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
     const filterState = getCliFilterState();
     const allSessions = visibleCliSessions();
     const sessions = applyGlobalSessionFilter(allSessions, filterState);
-    const filtersReducedSet = filterState.active && sessions.length !== allSessions.length;
-    const summary = filtersReducedSet ? computeCliSummaryFromSessions(sessions) : cli.summary || {};
-    const byModelRows = filtersReducedSet ? computeCliByModelFromSessions(sessions) : cli.byModel || [];
+    const dateRange = activeDateRange(filterState);
+    const filtersReducedSet = filterState.active && (dateRange !== null || sessions.length !== allSessions.length);
+    const summary = filtersReducedSet ? computeCliSummaryFromSessions(sessions, dateRange) : cli.summary || {};
+    const byModelRows = filtersReducedSet ? computeCliByModelFromSessions(sessions, dateRange) : cli.byModel || [];
     const models = [...new Set(sessions.flatMap((row) => row.models || []))].sort();
     const search = (STATE.cliSearch || "").trim().toLowerCase();
     const modelFiltered = STATE.cliModel ? sessions.filter((row) => (row.models || []).includes(STATE.cliModel)) : sessions;
@@ -4017,7 +4090,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
               <div style="font-weight:700">${escapeHtml(alert2.title || "")}</div>
               <div class="note small">${escapeHtml(alert2.detail || "")}</div>
             </div>`).join("") : "";
-    const creditUsd = Number((_b = budget.creditUsd) != null ? _b : 0.01);
+    const creditUsd = Number((_b = budget.creditUsd) != null ? _b : CREDIT_USD);
     return `
         <div class="panel">
           <div class="section-title">AI credit budget <span class="note small" style="font-weight:400">\xB7 plan ${escapeHtml(String(budget.plan || "unknown"))}</span></div>

@@ -124,6 +124,51 @@ import { renderStatCell, renderTable } from './tables.js';
 
     const COST_TYPES = ['input', 'cache_read', 'cache_write', 'output'];
 
+    // A CLI session is a long-lived process and routinely spans several days, so
+    // "spend in this window" means the CALLS inside the window, not the sessions
+    // whose last activity falls inside it. `callBuckets` (one row per day +
+    // model, from cli_usage.py) carries the per-call costs needed to answer that
+    // exactly; summing whole sessions credited a session straddling the window's
+    // edge entirely to one side of it, which is the same error the backend's
+    // `periods.monthly` bundle used to make.
+    //
+    // Session-scoped figures (sessionCount, fileCount, toolCallCount) stay
+    // session-scoped, as they do server-side: a session counts for a window when
+    // it made at least one call in it. Only tokens and money are call-accurate,
+    // so a filtered summary is not expected to equal the sum of the costs listed
+    // against the sessions in the table below it.
+    function activeDateRange(filterState) {
+      if (!filterState.active || typeof filterState.cf?.periodRange !== 'function') return null;
+      try {
+        const range = filterState.cf.periodRange();
+        if (!range) return null;
+        const start = range.start ?? null;
+        const end = range.end ?? null;
+        return (start === null && end === null) ? null : { start, end };
+      } catch (_err) {
+        return null;
+      }
+    }
+
+    function bucketInRange(bucket, range) {
+      const ts = Number(bucket.lastTs || 0);
+      // An undated bucket stays counted rather than silently disappearing from
+      // the total; dropping it would understate the cost.
+      if (!ts) return true;
+      if (range.start !== null && ts < range.start) return false;
+      if (range.end !== null && ts > range.end) return false;
+      return true;
+    }
+
+    // The rows one session contributes to a rollup: its per-day call buckets
+    // when a date window is active and the payload carries them, else the
+    // session's own per-model rows (older cached payloads, or no window).
+    function sessionRollupRows(session, range) {
+      const buckets = session.callBuckets;
+      if (!range || !Array.isArray(buckets) || !buckets.length) return session.modelBreakdown || [];
+      return buckets.filter((bucket) => bucketInRange(bucket, range));
+    }
+
     function zeroCostByType() {
       return { input: 0, cache_read: 0, cache_write: 0, output: 0 };
     }
@@ -148,23 +193,28 @@ import { renderStatCell, renderTable } from './tables.js';
       return bucket;
     }
 
-    function computeCliSummaryFromSessions(sessions) {
+    function computeCliSummaryFromSessions(sessions, range) {
       const summary = {
-        sessionCount: sessions.length, callCount: 0, totalInput: 0, totalOutput: 0,
+        sessionCount: 0, callCount: 0, totalInput: 0, totalOutput: 0,
         totalCached: 0, totalCacheWrite: 0, totalInputBillable: 0, totalUncached: 0,
         cost: 0, costByType: zeroCostByType(), costSources: {},
         fileCount: 0, toolCallCount: 0, premiumRequests: 0,
       };
       const filePaths = new Set();
       sessions.forEach((session) => {
-        summary.callCount += Number(session.callCount || 0);
-        summary.totalInput += Number(session.input || 0);
-        summary.totalOutput += Number(session.output || 0);
-        summary.totalCached += Number(session.cached || 0);
-        summary.totalCacheWrite += Number(session.cacheWrite || 0);
-        summary.totalInputBillable += Number(session.inputBillable || 0);
-        summary.premiumRequests += sessionPremiumRequests(session);
-        addCostProvenance(summary, session);
+        const rows = sessionRollupRows(session, range);
+        if (!rows.length) return;
+        summary.sessionCount += 1;
+        rows.forEach((row) => {
+          summary.callCount += Number(row.calls || 0);
+          summary.totalInput += Number(row.input || 0);
+          summary.totalOutput += Number(row.output || 0);
+          summary.totalCached += Number(row.cached || 0);
+          summary.totalCacheWrite += Number(row.cacheWrite || 0);
+          summary.totalInputBillable += Number(row.inputBillable || 0);
+          summary.premiumRequests += rowPromptCount(session, row) * premiumMultiplierForModel(row.model);
+          addCostProvenance(summary, row);
+        });
         (session.files || []).forEach((file) => filePaths.add(file.path));
         (session.tools || []).forEach((tool) => { summary.toolCallCount += Number(tool.calls || 0); });
       });
@@ -178,10 +228,10 @@ import { renderStatCell, renderTable } from './tables.js';
       return summary;
     }
 
-    function computeCliByModelFromSessions(sessions) {
+    function computeCliByModelFromSessions(sessions, range) {
       const map = new Map();
       sessions.forEach((session) => {
-        (session.modelBreakdown || []).forEach((row) => {
+        sessionRollupRows(session, range).forEach((row) => {
           const key = row.model;
           const bucket = map.get(key) || {
             model: key, calls: 0, input: 0, inputBillable: 0, cached: 0, cacheWrite: 0, output: 0,
@@ -219,29 +269,70 @@ import { renderStatCell, renderTable } from './tables.js';
 
     function buildCliTrendRows(sessions, granularity) {
       const buckets = new Map();
+      const bucketFor = (key) => {
+        let bucket = buckets.get(key);
+        if (!bucket) {
+          bucket = {
+            input: 0, uncached: 0, cached: 0, output: 0, cost: 0,
+            sessionIds: new Set(), callCount: 0, toolCallCount: 0,
+          };
+          buckets.set(key, bucket);
+        }
+        return bucket;
+      };
+
       sessions.forEach((session) => {
-        const key = granularity === 'daily' ? session.dayKey : session.monthKey;
-        if (!key) return;
-        const bucket = buckets.get(key) || {
-          input: 0, uncached: 0, cached: 0, output: 0, cost: 0, sessionCount: 0, callCount: 0, toolCallCount: 0,
-        };
-        bucket.input += Number(session.input || 0);
-        bucket.uncached += Number(session.uncached || 0);
-        bucket.cached += Number(session.cached || 0);
-        bucket.output += Number(session.output || 0);
-        bucket.cost += Number(session.cost || 0);
-        bucket.sessionCount += 1;
-        bucket.callCount += Number(session.callCount || 0);
-        bucket.toolCallCount += (session.tools || []).reduce((sum, tool) => sum + Number(tool.calls || 0), 0);
-        buckets.set(key, bucket);
+        // Per-day call buckets when the payload has them: a session that ran
+        // from Monday to Wednesday spent money on all three days, and charting
+        // the lot on Wednesday put a spike where there was none and a hole
+        // where the spend actually was. Older payloads keep the whole-session
+        // behaviour, which is all their data supports.
+        const callRows = Array.isArray(session.callBuckets) && session.callBuckets.length
+          ? session.callBuckets
+          : null;
+        if (callRows) {
+          callRows.forEach((row) => {
+            const key = granularity === 'daily' ? row.dayKey : row.monthKey;
+            if (!key) return;
+            const bucket = bucketFor(key);
+            bucket.input += Number(row.input || 0);
+            bucket.uncached += Number(row.uncached ?? row.inputBillable ?? 0);
+            bucket.cached += Number(row.cached || 0);
+            bucket.output += Number(row.output || 0);
+            bucket.cost += Number(row.cost || 0);
+            bucket.callCount += Number(row.calls || 0);
+            bucket.sessionIds.add(session.id);
+          });
+        } else {
+          const key = granularity === 'daily' ? session.dayKey : session.monthKey;
+          if (key) {
+            const bucket = bucketFor(key);
+            bucket.input += Number(session.input || 0);
+            bucket.uncached += Number(session.uncached || 0);
+            bucket.cached += Number(session.cached || 0);
+            bucket.output += Number(session.output || 0);
+            bucket.cost += Number(session.cost || 0);
+            bucket.callCount += Number(session.callCount || 0);
+            bucket.sessionIds.add(session.id);
+          }
+        }
+
+        // Tool calls carry no per-call timestamp, so they land on the session's
+        // own bucket rather than being smeared across the days it ran.
+        const sessionKey = granularity === 'daily' ? session.dayKey : session.monthKey;
+        if (sessionKey) {
+          bucketFor(sessionKey).toolCallCount += (session.tools || [])
+            .reduce((sum, tool) => sum + Number(tool.calls || 0), 0);
+        }
       });
+
       return [...buckets.keys()].sort().map((key) => {
         const bucket = buckets.get(key);
         return {
           monthKey: key,
           label: key,
           totals: { input: bucket.input, uncached: bucket.uncached, cached: bucket.cached, output: bucket.output, cost: bucket.cost },
-          sessionCount: bucket.sessionCount,
+          sessionCount: bucket.sessionIds.size,
           chatCallCount: bucket.callCount,
           toolCallCount: bucket.toolCallCount,
           cacheHitRate: bucket.input ? (bucket.cached / bucket.input) * 100 : 0,
@@ -668,9 +759,14 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
       const filterState = getCliFilterState();
       const allSessions = visibleCliSessions();
       const sessions = applyGlobalSessionFilter(allSessions, filterState);
-      const filtersReducedSet = filterState.active && sessions.length !== allSessions.length;
-      const summary = filtersReducedSet ? computeCliSummaryFromSessions(sessions) : (cli.summary || {});
-      const byModelRows = filtersReducedSet ? computeCliByModelFromSessions(sessions) : (cli.byModel || []);
+      const dateRange = activeDateRange(filterState);
+      // A date window recomputes even when it excluded no session: a session
+      // that started before the window still has calls outside it, and only the
+      // per-call buckets can leave those out.
+      const filtersReducedSet = filterState.active
+        && (dateRange !== null || sessions.length !== allSessions.length);
+      const summary = filtersReducedSet ? computeCliSummaryFromSessions(sessions, dateRange) : (cli.summary || {});
+      const byModelRows = filtersReducedSet ? computeCliByModelFromSessions(sessions, dateRange) : (cli.byModel || []);
       const models = [...new Set(sessions.flatMap((row) => row.models || []))].sort();
       const search = (STATE.cliSearch || '').trim().toLowerCase();
       const modelFiltered = STATE.cliModel ? sessions.filter((row) => (row.models || []).includes(STATE.cliModel)) : sessions;

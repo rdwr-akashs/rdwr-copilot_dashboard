@@ -8,6 +8,8 @@ individual `_rule_*` heuristic (out of scope for this pass).
 """
 from __future__ import annotations
 
+import pytest
+
 from insights_engine import DEFAULT_CONFIG, build_insights, build_insights_with_diagnostics
 
 REQUIRED_INSIGHT_KEYS = {
@@ -93,3 +95,49 @@ def test_default_config_has_all_documented_rule_sections():
         "dataHealth",
     }
     assert expected_sections.issubset(DEFAULT_CONFIG.keys())
+
+
+# ---------------------------------------------------------------------------
+# Hypothetical ("what if you had used a cheaper model") costs
+# ---------------------------------------------------------------------------
+
+def test_substitution_savings_prices_the_hypothetical_at_the_per_call_tier():
+    """A period's token volume must not promote a hypothetical to long-context rates.
+
+    Long-context pricing is billed per call, above a per-prompt threshold. Any
+    busy month's *summed* prompt tokens clear that threshold trivially, so
+    pricing an aggregate as if it were one giant call roughly doubles the
+    hypothetical cost and understates the saving the insight is claiming. The
+    tier is chosen from the average prompt per call instead.
+    """
+    config = {"modelSubstitutionPolicy": {"chatCheapModel": "gpt-5.4", "minSavingsToReport": 0.05}}
+    app_data = {
+        "sessions": [],
+        "cli": {"sessions": []},
+        "unified": {
+            "monthly": [],
+            "byModel": [],
+            "bySource": [{
+                "source": "chat",
+                # 100 calls averaging a 10K prompt - nowhere near the 272K
+                # per-call long-context threshold, though the total is 1M.
+                "callCount": 100,
+                "premiumRequests": 100.0,
+                "billed": {"input": 1_000_000.0, "output": 10_000.0, "cached": 0.0, "cost": 20.0},
+                "attributed": {"input": 1_000_000.0, "output": 10_000.0, "cached": 0.0, "cost": 20.0},
+            }],
+        },
+        "premium": {"budget": {}},
+    }
+
+    insight = next(
+        item for item in build_insights(app_data, config=config)
+        if item["id"] == "model-substitution-savings"
+    )
+    evidence = insight["evidence"][0]
+    default_tier_cost = 1_000_000 / 1_000_000 * 2.50 + 10_000 / 1_000_000 * 15.00
+    long_tier_cost = 1_000_000 / 1_000_000 * 5.00 + 10_000 / 1_000_000 * 22.50
+
+    assert evidence["hypotheticalCost"] == pytest.approx(default_tier_cost, abs=1e-4)
+    assert evidence["hypotheticalCost"] < long_tier_cost
+    assert insight["estimatedSavings"]["cost"] == pytest.approx(20.0 - default_tier_cost, abs=1e-4)

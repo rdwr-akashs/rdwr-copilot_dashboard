@@ -10,6 +10,8 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timedelta
 
+import pytest
+
 from cli_usage import build_cli_dashboard_data
 
 
@@ -149,6 +151,102 @@ def test_sessions_carry_month_key_and_day_key(tmp_path):
     assert by_id["current-session"]["monthKey"] == current_month_ts.strftime("%Y-%m")
     assert by_id["current-session"]["dayKey"] == current_month_ts.strftime("%Y-%m-%d")
     assert by_id["previous-session"]["monthKey"] == previous_month_ts.strftime("%Y-%m")
+
+
+def _build_spanning_db(tmp_path):
+    """One session whose calls straddle the month boundary.
+
+    A CLI session is a long-lived process; leaving one open over the turn of the
+    month is ordinary. Its spend belongs to the months the calls were made in,
+    not to the month it happened to last be active in.
+    """
+    now = datetime.now()
+    current_month_ts = now.replace(day=15, hour=10, minute=0, second=0, microsecond=0)
+    previous_month_ts = (now.replace(day=1) - timedelta(days=1)).replace(day=15, hour=10, minute=0, second=0, microsecond=0)
+
+    db_path = tmp_path / "spanning-store.db"
+    con = sqlite3.connect(str(db_path))
+    try:
+        cur = con.cursor()
+        cur.execute(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, cwd TEXT, repository TEXT, branch TEXT, "
+            "summary TEXT, created_at TEXT, updated_at TEXT)"
+        )
+        cur.execute(
+            "CREATE TABLE assistant_usage_events (session_id TEXT, turn_index INTEGER, model TEXT, "
+            "input_tokens INTEGER, output_tokens INTEGER, cache_read_tokens INTEGER, "
+            "cache_write_tokens INTEGER, reasoning_tokens INTEGER, duration_ms INTEGER, created_at TEXT)"
+        )
+        cur.execute(
+            "CREATE TABLE turns (session_id TEXT, turn_index INTEGER, user_message TEXT, "
+            "assistant_response TEXT, timestamp TEXT)"
+        )
+        cur.execute(
+            "CREATE TABLE session_files (session_id TEXT, file_path TEXT, tool_name TEXT, first_seen_at TEXT)"
+        )
+        cur.execute(
+            "INSERT INTO sessions (id, cwd, repository, branch, summary, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("long-session", "/repo/c", "org/repo-c", "main", "Spans a month boundary",
+             _iso(previous_month_ts), _iso(current_month_ts)),
+        )
+        cur.executemany(
+            "INSERT INTO assistant_usage_events (session_id, turn_index, model, input_tokens, output_tokens, "
+            "cache_read_tokens, cache_write_tokens, reasoning_tokens, duration_ms, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("long-session", 0, "gpt-5.4", 3000, 900, 0, 0, 0, 1000, _iso(previous_month_ts)),
+                ("long-session", 1, "gpt-5.4", 1000, 100, 0, 0, 0, 1000, _iso(current_month_ts)),
+            ],
+        )
+        con.commit()
+    finally:
+        con.close()
+    return str(db_path)
+
+
+def test_session_spanning_a_month_boundary_splits_its_spend(tmp_path):
+    db_path = _build_spanning_db(tmp_path)
+    data = build_cli_dashboard_data(db_path, otel_log_paths=[])
+    session = data["sessions"][0]
+    monthly = data["periods"]["monthly"]["summary"]
+    all_time = data["periods"]["allTime"]["summary"]
+    current_month = datetime.now().strftime("%Y-%m")
+
+    # The session's own month key still says "this month" - it was last active
+    # now - so filtering whole sessions on it would have credited the previous
+    # month's 3000-token call to this month.
+    assert session["monthKey"] == current_month
+    assert session["callCount"] == 2
+
+    assert all_time["callCount"] == 2
+    assert all_time["totalInput"] == 4000
+    # Only the call actually made this month.
+    assert monthly["sessionCount"] == 1
+    assert monthly["callCount"] == 1
+    assert monthly["totalInput"] == 1000
+    assert monthly["totalOutput"] == 100
+    assert monthly["totalCost"] < all_time["totalCost"]
+    assert [row["calls"] for row in data["periods"]["monthly"]["byModel"]] == [1]
+
+
+def test_call_buckets_reconcile_with_the_session_totals(tmp_path):
+    """Per-call buckets are a re-partition of the session, never a re-pricing.
+
+    If these ever disagree, one of the two figures on screen is wrong, so the
+    invariant is worth pinning rather than trusting by construction.
+    """
+    db_path = _build_spanning_db(tmp_path)
+    session = build_cli_dashboard_data(db_path, otel_log_paths=[])["sessions"][0]
+    buckets = session["callBuckets"]
+
+    assert len(buckets) == 2  # two days, same model
+    assert {bucket["dayKey"][:7] for bucket in buckets} == {
+        bucket["monthKey"] for bucket in buckets
+    }
+    assert sum(bucket["calls"] for bucket in buckets) == session["callCount"]
+    assert sum(bucket["cost"] for bucket in buckets) == pytest.approx(session["cost"])
+    for key in ("input", "inputBillable", "output", "cached", "cacheWrite"):
+        assert sum(bucket[key] for bucket in buckets) == pytest.approx(session[key]), key
 
 
 def test_periods_block_present_and_empty_when_db_unavailable(tmp_path):

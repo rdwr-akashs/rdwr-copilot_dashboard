@@ -38,7 +38,7 @@ import os
 from datetime import datetime
 from typing import Any
 
-from model_pricing import match_keys
+from model_pricing import AIU_USD, match_keys
 
 # Per-model premium-request multipliers. LEGACY - applies only to annual
 # Pro/Pro+ subscriptions still billed in premium requests (see module
@@ -98,7 +98,11 @@ DEFAULT_MULTIPLIER = 1.0
 # `1 credit = $0.01 USD` is the conversion GitHub bills at. Model usage is
 # priced per-token (model_pricing.PRICING), so a month's credit consumption
 # is that month's dollar cost x 100.
-CREDIT_USD = 0.01
+# Imported, not re-declared: `model_pricing.AIU_USD` is the same $0.01 unit the
+# CLI's `total_nano_aiu` charges are converted through, and two independent
+# copies of a billing constant is exactly the kind of drift that makes a
+# credit figure disagree with the dollar figure it was derived from.
+CREDIT_USD = AIU_USD
 CREDITS_PER_USD = 1.0 / CREDIT_USD  # 100.0
 ALLOWANCE_UNIT = "credits"
 
@@ -360,9 +364,18 @@ def build_budget(unified: dict[str, Any], config: dict[str, Any], now_ms: float 
     legacy_requests = 0.0
     for row in (unified or {}).get("monthly", []) or []:
         if row.get("monthKey") == current_month_key:
-            billed_cost = float(((row.get("billed") or {}).get("cost", 0.0)) or 0.0)
-            attributed_cost = float(((row.get("attributed") or {}).get("cost", 0.0)) or 0.0)
-            used_usd = billed_cost or attributed_cost
+            # The budget measures what GitHub charges, so the billed block is
+            # authoritative and the attributed one is only a stand-in for
+            # payloads that lack it. Selected on key presence rather than
+            # truthiness: `or` would treat a genuine zero billed cost - a month
+            # whose only calls were free, or a rebuild that has not priced
+            # anything yet - as "no billed data" and quietly substitute the
+            # attributed figure, reporting spend against an allowance that
+            # nothing was actually billed to.
+            billed = row.get("billed")
+            attributed = row.get("attributed")
+            block = billed if isinstance(billed, dict) and "cost" in billed else attributed
+            used_usd = float(((block or {}).get("cost", 0.0)) or 0.0)
             legacy_requests = float(row.get("premiumRequests", 0.0) or 0.0)
             break
 

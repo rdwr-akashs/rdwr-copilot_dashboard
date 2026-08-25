@@ -225,8 +225,11 @@ def build_period_summary(sessions: list[dict[str, Any]]) -> dict[str, Any]:
         if summary["totals"]["input"]
         else 0.0
     )
-    summary["aiCredits"] = summary["totals"]["cost"] / 0.01 if summary["totals"]["cost"] else 0.0
-    summary["billedCredits"] = summary["billedTotals"]["cost"] / 0.01 if summary["billedTotals"]["cost"] else 0.0
+    # AIU_USD, not a literal 0.01: one $0.01 credit unit, shared with the CLI's
+    # nano-AIU conversion and the budget allowance, so a credit figure can never
+    # drift from the dollar figure it was derived from.
+    summary["aiCredits"] = summary["totals"]["cost"] / AIU_USD if summary["totals"]["cost"] else 0.0
+    summary["billedCredits"] = summary["billedTotals"]["cost"] / AIU_USD if summary["billedTotals"]["cost"] else 0.0
     return summary
 
 

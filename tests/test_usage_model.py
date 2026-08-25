@@ -232,6 +232,93 @@ def test_records_from_cli_skips_sessions_with_no_model_breakdown():
     assert all(r["sessionId"] != "cliSessEmpty" for r in records)
 
 
+def _cli_call_bucket_fixture():
+    """One session whose calls span two days and two months.
+
+    Mirrors what `cli_usage.build_cli_dashboard_data` emits: `callBuckets` per
+    (day, model), with the session-level fields still present so the fallback
+    path is the only thing distinguishing an older payload.
+    """
+    return {
+        "available": True,
+        "sessions": [{
+            "id": "spanSess",
+            "repository": "repoD",
+            "branch": "main",
+            "lastActivity": _ms(DAY3),
+            "turnCount": 4,
+            "modelBreakdown": [
+                {"model": "gpt-5.4", "calls": 4, "input": 1000.0, "inputBillable": 700.0,
+                 "cached": 200.0, "cacheWrite": 100.0, "output": 400.0, "cost": 0.05},
+            ],
+            "callBuckets": [
+                {"dayKey": "2024-06-20", "monthKey": "2024-06", "model": "gpt-5.4", "calls": 1,
+                 "input": 400.0, "inputBillable": 300.0, "cached": 60.0, "cacheWrite": 40.0,
+                 "output": 100.0, "cost": 0.02, "lastTs": _ms(DAY2)},
+                {"dayKey": "2024-07-01", "monthKey": "2024-07", "model": "gpt-5.4", "calls": 3,
+                 "input": 600.0, "inputBillable": 400.0, "cached": 140.0, "cacheWrite": 60.0,
+                 "output": 300.0, "cost": 0.03, "lastTs": _ms(DAY3)},
+            ],
+        }],
+    }
+
+
+def test_records_from_cli_dates_each_call_bucket_from_its_own_calls():
+    """A session that ran across a month boundary must land in both months.
+
+    Dating every record from the session's last activity moved the whole
+    session's spend into the month it happened to finish in - which is the
+    month the AI-credit budget then bills.
+    """
+    records = records_from_cli(_cli_call_bucket_fixture())
+    assert len(records) == 2
+    by_month = {month_key_ms(record["ts"]): record for record in records}
+
+    assert set(by_month) == {"2024-06", "2024-07"}
+    assert by_month["2024-06"]["ts"] == _ms(DAY2)
+    assert by_month["2024-06"]["attributed"]["cost"] == 0.02
+    assert by_month["2024-07"]["attributed"]["cost"] == 0.03
+    # A re-partition of the session, not a re-pricing of it.
+    assert sum(record["attributed"]["cost"] for record in records) == pytest.approx(0.05)
+    assert sum(record["modelCalls"] for record in records) == 4
+    # The session's 4 prompts still apportion by call share (1:3), unchanged.
+    assert sum(record["promptCount"] for record in records) == pytest.approx(4.0)
+    assert by_month["2024-06"]["promptCount"] == pytest.approx(1.0)
+
+
+def test_records_from_cli_uncached_is_the_billable_input_not_input_minus_cached():
+    """Cache-write tokens are carved out of the prompt, so they are not uncached.
+
+    `input - cached` leaves them in the uncached column while they are also
+    reported as cache writes, double-counting them in every rollup that adds
+    the columns up.
+    """
+    record = records_from_cli(_cli_call_bucket_fixture())[0]
+    assert record["attributed"]["input"] == 400.0
+    assert record["attributed"]["cached"] == 60.0
+    # 400 - 60 cache reads - 40 cache writes, as the pricing layer charged it.
+    assert record["attributed"]["uncached"] == 300.0
+
+
+def test_records_from_cli_falls_back_to_model_breakdown_without_call_buckets():
+    """Older cached payloads have no `callBuckets`; they must still aggregate.
+
+    The fallback keeps the historic per-session dating and the historic
+    `input - cached` uncached derivation, because those payloads carry no
+    `inputBillable` to do better with.
+    """
+    cli_data = _cli_call_bucket_fixture()
+    session = cli_data["sessions"][0]
+    del session["callBuckets"]
+    session["modelBreakdown"][0].pop("inputBillable")
+
+    records = records_from_cli(cli_data)
+    assert len(records) == 1
+    assert records[0]["ts"] == _ms(DAY3)
+    assert records[0]["attributed"]["uncached"] == 800.0  # 1000 - 200
+    assert records[0]["attributed"]["cost"] == 0.05
+
+
 def test_records_from_cli_unavailable_or_empty_returns_no_records():
     assert records_from_cli({"available": False, "sessions": []}) == []
     assert records_from_cli(None) == []

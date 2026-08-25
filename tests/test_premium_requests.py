@@ -6,6 +6,7 @@ from datetime import datetime
 
 import pytest
 
+from model_pricing import AIU_USD
 from premium_requests import (
     CREDIT_USD,
     DEFAULT_CRITICAL_THRESHOLD,
@@ -205,6 +206,43 @@ def test_build_budget_ignores_other_months():
     ]}
     budget = build_budget(unified, config, now_ms=_ms(JUNE_MID))
     assert budget["used"] == 30.0  # only the current month's row is used
+
+
+def test_build_budget_zero_billed_cost_is_not_replaced_by_the_attributed_figure():
+    """A billed cost of exactly $0 is data, not a missing value.
+
+    The billed block is authoritative for the budget; the attributed one is a
+    fallback for payloads that lack it. Selecting with `billed or attributed`
+    made a genuine zero fall through to the attributed figure, so a month whose
+    calls were all free would report the attributed estimate as money billed.
+    """
+    config = {"plan": "pro", "allowance": 300, "warnThreshold": 75.0, "criticalThreshold": 90.0}
+    unified = {"monthly": [{
+        "monthKey": "2024-06",
+        "billed": {"cost": 0.0},
+        "attributed": {"cost": 2.50},  # 250 credits
+        "premiumRequests": 0.0,
+    }]}
+    budget = build_budget(unified, config, now_ms=_ms(JUNE_MID))
+    assert budget["used"] == 0.0
+    assert budget["usedUsd"] == 0.0
+    assert budget["status"] == "ok"
+
+
+def test_build_budget_falls_back_to_attributed_when_no_billed_block_exists():
+    config = {"plan": "pro", "allowance": 300, "warnThreshold": 75.0, "criticalThreshold": 90.0}
+    unified = {"monthly": [{
+        "monthKey": "2024-06",
+        "attributed": {"cost": 0.30},  # 30 credits
+        "premiumRequests": 0.0,
+    }]}
+    budget = build_budget(unified, config, now_ms=_ms(JUNE_MID))
+    assert budget["used"] == pytest.approx(30.0)
+
+
+def test_credit_unit_is_the_same_constant_the_cost_layer_bills_through():
+    """One $0.01 unit, imported - not two copies that can drift apart."""
+    assert CREDIT_USD == AIU_USD
 
 
 def test_build_budget_no_monthly_row_for_current_month_yields_zero_used():

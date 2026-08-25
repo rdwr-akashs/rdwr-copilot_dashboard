@@ -478,6 +478,36 @@
         "branch": "main",
         "cacheWrite": 0.0,
         "cached": 0.0,
+        "callBuckets": [
+          {
+            "cacheWrite": 0.0,
+            "cached": 0.0,
+            "calls": 1,
+            "cost": 0.003,
+            "costByType": {
+              "cache_read": 0.0,
+              "cache_write": 0.0,
+              "input": 0.0015,
+              "output": 0.0015
+            },
+            "costExact": false,
+            "costSource": "estimate",
+            "costSources": {
+              "estimate": 1
+            },
+            "credits": 0.3,
+            "dayKey": "2026-01-03",
+            "durationMs": 900.0,
+            "input": 500.0,
+            "inputBillable": 500.0,
+            "lastTs": 1767449100000.0,
+            "model": "claude-sonnet-4.5",
+            "monthKey": "2026-01",
+            "output": 100.0,
+            "reasoning": 0.0,
+            "uncached": 500.0
+          }
+        ],
         "callCount": 1,
         "cost": 0.003,
         "costByType": {
@@ -564,6 +594,36 @@
         "branch": "feature/x",
         "cacheWrite": 0.0,
         "cached": 2500.0,
+        "callBuckets": [
+          {
+            "cacheWrite": 0.0,
+            "cached": 2500.0,
+            "calls": 2,
+            "cost": 0.019125,
+            "costByType": {
+              "cache_read": 0.000625,
+              "cache_write": 0.0,
+              "input": 0.005,
+              "output": 0.0135
+            },
+            "costExact": false,
+            "costSource": "estimate",
+            "costSources": {
+              "estimate": 2
+            },
+            "credits": 1.9124999999999999,
+            "dayKey": "2026-01-02",
+            "durationMs": 3800.0,
+            "input": 4500.0,
+            "inputBillable": 2000.0,
+            "lastTs": 1767346200000.0,
+            "model": "gpt-5.4",
+            "monthKey": "2026-01",
+            "output": 900.0,
+            "reasoning": 0.0,
+            "uncached": 2000.0
+          }
+        ],
         "callCount": 2,
         "cost": 0.019125,
         "costByType": {
@@ -665,6 +725,36 @@
         "branch": "main",
         "cacheWrite": 50.0,
         "cached": 900.0,
+        "callBuckets": [
+          {
+            "cacheWrite": 50.0,
+            "cached": 900.0,
+            "calls": 2,
+            "cost": 0.0126075,
+            "costByType": {
+              "cache_read": 0.00027,
+              "cache_write": 0.0001875,
+              "input": 0.00465,
+              "output": 0.0075
+            },
+            "costExact": false,
+            "costSource": "estimate",
+            "costSources": {
+              "estimate": 2
+            },
+            "credits": 1.26075,
+            "dayKey": "2026-01-01",
+            "durationMs": 2700.0,
+            "input": 2500.0,
+            "inputBillable": 1550.0,
+            "lastTs": 1767262500000.0,
+            "model": "claude-sonnet-4.5",
+            "monthKey": "2026-01",
+            "output": 500.0,
+            "reasoning": 0.0,
+            "uncached": 1550.0
+          }
+        ],
         "callCount": 2,
         "cost": 0.0126075,
         "costByType": {

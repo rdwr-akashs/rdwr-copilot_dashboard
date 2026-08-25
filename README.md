@@ -119,6 +119,12 @@ So CLI costs are not estimates. They are GitHub's own figures, summed per call, 
 
 The pricing table in **Reference → Model prices** is therefore only a *fallback* for CLI data, and the primary source for the Chats tab, where VS Code exposes no billing figure at all.
 
+### When CLI spend counts as "this month"
+
+A CLI session is long-lived: `copilot` can stay open for hours or days, so its first and last calls can land in different days — or different months. Spend is therefore attributed to the calendar day and month of **each call** (`assistant_usage_events.created_at`, in your local timezone), not to the session's last activity. A session left open across a month boundary bills into both months, and each month sees only the calls actually made in it. That is what the AI-credit budget measures, so the "current month" figure matches what GitHub charged for the period.
+
+Counts of *things* stay session-scoped: a session, its files, and its tool calls are counted in a month when the session made at least one call in that month. Only tokens, calls, and cost are split by call date. The per-call day/model rollups the UI and the period totals read are exposed on each CLI session as `callBuckets`; they re-partition the session's spend and never re-price it.
+
 ### Optional: capture the CLI's OpenTelemetry export
 
 The CLI can also emit OTel spans (per-tool-call timing) and metrics (token and spend counters). This is optional and never changes a cost figure — it is used for per-tool insight and as an independent cross-check that reconciles GitHub's own counters against the database, surfacing any disagreement in the CLI tab.
@@ -429,6 +435,7 @@ Common approaches:
   - referenced tool-definition files
 - **VS Code chat** cost is estimated using API pricing tables and the observed token counters in the logs. Two things that estimate cannot see: the 10% auto-model-selection discount (nothing in the telemetry flags a call as auto-routed) and cache-write tokens (see below), so cache-heavy chats read as a lower bound.
 - **Copilot CLI** cost is not estimated — it is read from what GitHub charged each call in `~/.copilot/session-store.db`, including cache-write tokens billed at their own rate. See "GitHub Copilot CLI usage" above.
+- Day and month boundaries are evaluated in the **machine's local timezone**, on both the Python and the JavaScript side. GitHub's own billing period may not use the same timezone, so calls made within a few hours of a month boundary can be counted in a different month than an invoice shows.
 - Current Copilot **chat** debug logs expose `inputTokens`, `outputTokens`, and cached-read counters, but they do **not** reliably expose explicit provider cache-write / cache-creation token counts. The CLI session store does record them (`cache_write_tokens`), so this limitation applies to the Chats tab only.
 - Compaction is not emitted as a first-class event in the current debug logs. The dashboard therefore infers context resets from prompt shrinkage / prompt rebuild behavior and labels those as inferred segment boundaries.
 - `inputTokens` is treated as billed input for each call, and is **all-inclusive**: the cached-read and cache-write counts are subsets of it, not additions to it. So uncached (billable-at-full-rate) input is `inputTokens - cachedTokens - cacheWriteTokens`, where the chat side has no cache-write counter and that term is 0.

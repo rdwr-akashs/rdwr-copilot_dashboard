@@ -61,7 +61,17 @@ only reflects the intended change before committing it.
 
 - `test_model_pricing.py` — `get_pricing()` exact/prefix/substring/fallback
   lookups; `calculate_cost()` maths (cached-vs-uncached split, zero and
-  negative edge cases).
+  negative edge cases); the all-inclusive prompt partition
+  (`split_prompt_tokens()` never returns a negative component, clamps cache
+  counts that exceed the prompt instead of billing them on top, and always
+  sums back to the prompt) and the cost-impacting diagnostic that clamp
+  raises; long-context tier selection from the per-call prompt size.
+- `test_chat_cost_attribution.py` — how a chat turn's cost is attributed,
+  end to end from a debug log through `compact_cache.parse_session_payload`:
+  prompt-growth attribution keeps the long-context tier of the whole call,
+  attributed cost never exceeds the same call's billed cost (and never goes
+  negative when the prompt shrinks), and ordinary short prompts stay on the
+  default tier.
 - `test_cli_usage.py` — `build_cli_dashboard_data()` summary counts,
   per-model breakdown, file list, and graceful degradation for a missing DB.
 - `test_cli_otel.py` — `parse_cli_otel_files()` tool aggregation and
@@ -70,14 +80,21 @@ only reflects the intended change before committing it.
   honour their env-var overrides and never fall back to a hardcoded
   `/tmp/...` or `/mnt/radware/...` path on non-POSIX hosts.
 - `test_cli_periods.py` — the `cli["periods"]` block: `monthly` only
-  contains current-calendar-month sessions, `allTime` contains all sessions,
-  both have coherent `summary`/`byModel`, and monthly totals never exceed
-  all-time totals. Uses its own SQLite fixture built relative to
-  `datetime.now()` at test time (there is no `now` injection point in
-  `cli_usage.py`'s period logic).
+  contains calls made in the current calendar month, `allTime` contains all
+  sessions, both have coherent `summary`/`byModel`, and monthly totals never
+  exceed all-time totals. Also covers a session spanning a month boundary
+  (its spend splits across both months, while the session itself counts once
+  in each) and the invariant that the per-call `callBuckets` rollups
+  re-partition a session's totals without re-pricing them. Uses its own
+  SQLite fixture built relative to `datetime.now()` at test time (there is no
+  `now` injection point in `cli_usage.py`'s period logic).
 - `test_usage_model.py` — `records_from_chat_sessions()` /
   `records_from_cli()` adapters (including the compacted-session fallback
-  path and the CLI `attributed == billed` no-op invariant), full
+  path, the CLI `attributed == billed` no-op invariant, one unified record
+  per `callBuckets` row so a straddling session lands in both months, the
+  legacy `modelBreakdown` fallback for payloads without buckets, and
+  `uncached` following `inputBillable` so cache-write tokens are not
+  double-counted), full
   `build_unified()` aggregation maths (daily/monthly/byModel/byRepo/
   bySource/byHost/totals) against hand-computed expected sums,
   `month_key_ms`/`day_key_ms` format parity with
@@ -90,7 +107,11 @@ only reflects the intended change before committing it.
   chain, and `build_budget()` maths with a frozen `now_ms` (deterministic
   `daysElapsed`/`burnRatePerDay`/`projectedMonthEnd`), including exact
   `ok`/`warn`/`critical` threshold boundaries and unlimited/`None` allowance
-  handling (no division by `None`).
+  handling (no division by `None`). Also pins which block the budget spends
+  from: a `billed` block worth `$0.00` is a real answer and must not fall
+  through to the attributed figure, the attributed block is used only when no
+  billed block exists, and the credit unit is the same constant the cost
+  layer bills through (`model_pricing.AIU_USD`).
 - `test_structural_contract.py` — pins `app_data["unified"]`/`["premium"]`
   top-level key sets and `app_data["insights"]`'s list-of-records shape, and
   — critically — asserts all three survive
@@ -99,7 +120,11 @@ only reflects the intended change before committing it.
   this is a regression test for exactly that class of bug).
 - `test_insights_engine.py` — lightweight contract coverage for
   `insights_engine.build_insights()` (shape, determinism, sort order,
-  never-raises-on-empty-input). Not exhaustive per-rule coverage.
+  never-raises-on-empty-input), plus one cost-correctness rule test: a
+  model-substitution hypothetical is priced at the tier implied by the
+  average prompt *per call*, so a period's summed tokens cannot promote it to
+  long-context rates and halve the saving it reports. Not exhaustive per-rule
+  coverage.
 - `test_generate_html.py` — `generate_html()` produces a well-formed
   document with no unreplaced `__APP_JSON__`/`__PRICING_JSON__` placeholders
   and no leftover `{{`/`}}` escaping artifacts. Tolerant of the `web/`

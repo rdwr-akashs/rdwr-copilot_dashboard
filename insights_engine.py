@@ -328,7 +328,13 @@ def _rule_expensive_model_trivial_work(sessions: list[dict[str, Any]], cfg: dict
         actual_cost = float(billed.get("cost", 0.0) or 0.0)
         input_tokens = float(billed.get("input", 0.0) or 0.0)
         cached_tokens = float(billed.get("cached", 0.0) or 0.0)
-        hyp = calculate_cost(input_tokens, output_tokens, cached_tokens, cheaper_model)
+        # `input_tokens` here is the session's total across calls, which must not
+        # pick the long-context tier - that threshold applies per call. The peak
+        # single-call prompt is the right proxy for "was any call over the line".
+        hyp = calculate_cost(
+            input_tokens, output_tokens, cached_tokens, cheaper_model,
+            tier_prompt_tokens=peak_prompt,
+        )
         cost_savings = max(0.0, actual_cost - hyp["cost"])
         premium_savings = max(0.0, multiplier - get_multiplier(cheaper_model)) * chat_calls
         if cost_savings <= 0 and premium_savings <= 0:
@@ -636,12 +642,19 @@ def _rule_model_substitution_policy(unified: dict[str, Any], cfg: dict[str, Any]
         cached_tokens = float(billed.get("cached", 0.0) or 0.0)
         if actual_cost <= 0:
             continue
-        hyp = calculate_cost(input_tokens, output_tokens, cached_tokens, cheap_model)
+        actual_premium = float(row.get("premiumRequests", 0.0) or 0.0)
+        call_count = int(row.get("callCount", 0) or 0)
+        # A whole period's token volume trivially exceeds every long-context
+        # threshold, but that tier is billed per call - so the tier decision uses
+        # the average prompt per call, not the aggregate.
+        hyp = calculate_cost(
+            input_tokens, output_tokens, cached_tokens, cheap_model,
+            # 0.0 == "per-call size unknown", which resolves to the default tier.
+            tier_prompt_tokens=(input_tokens / call_count) if call_count else 0.0,
+        )
         savings = actual_cost - hyp["cost"]
         if savings < min_savings:
             continue
-        actual_premium = float(row.get("premiumRequests", 0.0) or 0.0)
-        call_count = int(row.get("callCount", 0) or 0)
         hyp_premium = get_multiplier(cheap_model) * call_count
         premium_savings = max(0.0, actual_premium - hyp_premium)
         out.append(_make_insight(

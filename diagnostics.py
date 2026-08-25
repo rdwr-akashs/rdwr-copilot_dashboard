@@ -54,6 +54,10 @@ CODE_CLI_DB_LOCKED = "cli.db_locked"
 CODE_CLI_QUERY_FAILED = "cli.query_failed"
 CODE_LOG_PARSE_FAILED = "log.parse_failed"
 CODE_OTEL_LINE_SKIPPED = "otel.line_skipped"
+# A call whose cache counters exceed its own prompt counter. Cost-impacting
+# because `model_pricing.split_prompt_tokens` clamps the split to the reported
+# prompt rather than billing tokens the prompt never contained.
+CODE_PRICING_PROMPT_OVERFLOW = "pricing.prompt_overflow"
 # Distinct from the line-level code on purpose: one bad line loses one data
 # point, an unreadable file loses the entire cross-check for that export.
 CODE_OTEL_FILE_SKIPPED = "otel.file_skipped"

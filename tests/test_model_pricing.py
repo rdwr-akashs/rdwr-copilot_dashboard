@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pytest
 
+import diagnostics
 from model_pricing import (
     PRICING,
     TOKEN_TYPES,
@@ -12,6 +13,7 @@ from model_pricing import (
     get_pricing,
     get_rates,
     nano_aiu_to_usd,
+    prompt_split_overflow,
     split_prompt_tokens,
     usd_to_nano_aiu,
 )
@@ -151,8 +153,29 @@ def test_split_prompt_tokens_partitions_the_prompt():
     assert split_prompt_tokens(1000, 100, 50) == {"input": 850, "cache_read": 100, "cache_write": 50}
 
 
-def test_split_prompt_tokens_clamps_and_never_goes_negative():
-    assert split_prompt_tokens(100, 500, 200) == {"input": 0.0, "cache_read": 500, "cache_write": 200}
+def test_split_prompt_tokens_clamps_the_split_to_the_reported_prompt():
+    """Cache counters that exceed the prompt are capped, not billed on top of it.
+
+    The prompt counter is all-inclusive, so a call cannot legitimately read
+    500 cached tokens out of a 100-token prompt. Telemetry that says so is
+    inconsistent, and the only safe reading is that the whole prompt was the
+    cheaper cache read: billing 700 tokens for a 100-token call would overstate
+    the cost by 7x. The clamp runs in reporting order, so the cheaper and more
+    reliably reported category (cache_read) survives and the excess is dropped
+    from cache_write.
+    """
+    assert split_prompt_tokens(100, 500, 200) == {"input": 0.0, "cache_read": 100, "cache_write": 0.0}
+    # Partition invariant: the three categories always re-add to the prompt.
+    assert sum(split_prompt_tokens(100, 500, 200).values()) == 100
+    assert sum(split_prompt_tokens(1000, 400, 900).values()) == 1000
+
+
+def test_prompt_split_overflow_reports_the_tokens_the_prompt_never_contained():
+    assert prompt_split_overflow(100, 500, 200) == 600
+    assert prompt_split_overflow(1000, 100, 50) == 0
+
+
+def test_split_prompt_tokens_never_goes_negative():
     assert split_prompt_tokens(0, -5, -5) == {"input": 0.0, "cache_read": 0.0, "cache_write": 0.0}
 
 
@@ -269,3 +292,97 @@ def test_fast_mode_is_not_swallowed_by_the_standard_opus_key():
     assert get_pricing("claude-opus-4.8-fast")["input"] == 10.00
     assert get_pricing("claude-opus-4.8")["input"] == 5.00
     assert cache_write_rate("claude-opus-4.8-fast") == 12.50
+
+
+# --------------------------------------------------------------------------
+# The tier seam: which prompt size picks the tier
+# --------------------------------------------------------------------------
+
+
+def test_tier_prompt_tokens_selects_the_tier_for_a_partial_charge():
+    """Pricing a slice of a call must still use the whole call's tier.
+
+    The chat pipeline attributes a turn's cost to the tokens it newly added
+    (`per_chat_calculations.py`'s prompt-growth block), so it prices a few
+    thousand delta tokens out of a call whose prompt was 300K. GitHub charged
+    that call at the long-context rate, which is a property of the call, not of
+    the slice - without this seam the attributed cost of a big-context session
+    silently falls to the default tier.
+    """
+    delta = 10_000
+    long_context = calculate_cost(delta, 500, 0, "gpt-5.4", tier_prompt_tokens=300_000)
+    default_tier = calculate_cost(delta, 500, 0, "gpt-5.4")
+
+    assert long_context["tier"] == "long"
+    assert default_tier["tier"] == "default"
+    # Same tokens priced, at the doubled long-context input rate.
+    assert long_context["cost"] == pytest.approx(
+        delta / 1_000_000 * 5.00 + 500 / 1_000_000 * 22.50
+    )
+    assert long_context["cost"] > default_tier["cost"]
+
+
+def test_tier_prompt_tokens_defaults_to_the_tokens_being_priced():
+    """Omitted, the parameter changes nothing: the call is its own prompt."""
+    explicit = calculate_cost(300_000, 100, 0, "gpt-5.4", tier_prompt_tokens=300_000)
+    implicit = calculate_cost(300_000, 100, 0, "gpt-5.4")
+    assert implicit["tier"] == "long"
+    assert implicit["cost"] == pytest.approx(explicit["cost"])
+
+
+def test_tier_prompt_tokens_zero_means_per_call_size_unknown():
+    """A caller working from aggregates passes 0.0 and gets the default tier.
+
+    Insight rules price hypothetical "what if you had used a cheaper model"
+    totals from a session's summed tokens, where no per-call prompt size exists.
+    Letting the aggregate pick the tier would bill a hypothetical at the
+    long-context rate purely because the session was long.
+    """
+    assert calculate_cost(1_000_000, 100, 0, "gpt-5.4", tier_prompt_tokens=0.0)["tier"] == "default"
+
+
+# --------------------------------------------------------------------------
+# Cache counters that exceed the prompt they came from
+# --------------------------------------------------------------------------
+
+
+def test_cache_tokens_beyond_the_prompt_are_capped_not_billed_on_top():
+    """The prompt counter is all-inclusive, so the split can only re-partition it.
+
+    Telemetry that claims 5000 cached tokens inside a 1000-token prompt is
+    self-contradictory; billing 6000 tokens would overstate the call 6x. The
+    charge is capped at pricing the whole reported prompt as a cache read.
+    """
+    result = calculate_cost(1000, 0, 5000, "claude-sonnet-4.5")
+    assert result["uncached"] == 0.0
+    assert result["cached"] == 1000
+    assert result["cost"] == pytest.approx(1000 / 1_000_000 * 0.30)
+    assert sum(result["costByType"].values()) == pytest.approx(result["cost"])
+
+
+def test_cache_overflow_is_reported_as_a_cost_impacting_diagnostic():
+    diagnostics.reset()
+    try:
+        calculate_cost(1000, 0, 5000, "claude-sonnet-4.5")
+        entry = next(
+            item for item in diagnostics.entries()
+            if item["code"] == diagnostics.CODE_PRICING_PROMPT_OVERFLOW
+        )
+    finally:
+        diagnostics.reset()
+
+    # The clamp changes a dollar figure, so it must not be filed as cosmetic:
+    # the UI's "your totals may be off" banner keys on impact, not severity.
+    assert entry["impact"] == "cost"
+    assert entry["source"] == "claude-sonnet-4.5"
+    assert "4,000" in entry["message"]  # 5000 cache reads - a 1000-token prompt
+
+
+def test_a_consistent_call_reports_no_overflow_diagnostic():
+    diagnostics.reset()
+    try:
+        calculate_cost(1000, 200, 100, "claude-sonnet-4.5", cache_write_tokens=50)
+        codes = {item["code"] for item in diagnostics.entries()}
+    finally:
+        diagnostics.reset()
+    assert diagnostics.CODE_PRICING_PROMPT_OVERFLOW not in codes
