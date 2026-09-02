@@ -149,6 +149,157 @@ python3 generate_dashboard.py --cli-otel-log ~/.copilot/otel.jsonl
 
 Setting only `COPILOT_OTEL_ENABLED=true` uses the default `otlp-http` exporter, which posts to `localhost:4318` and silently discards everything if nothing is listening there — so it produces no file for the dashboard to read.
 
+## Chronicle: the CLI's own history, in OpenObserve
+
+The HTML dashboard shows the CLI store as it is *now*. Chronicle ships the same store's **history** to
+OpenObserve instead, so months of billed spend can be charted, filtered per developer, and looked at
+by a team without anyone generating an HTML file. It reads the same `~/.copilot/session-store.db`
+described above, and the same `total_nano_aiu` — GitHub's recorded charge, not an estimate.
+
+Ported from the `observability` repo (`scripts/backfill-chronicle.py`, `chronicle-advice.py`,
+`seed-schema.py`, `push-dashboard.py`, `validate-dashboard-queries.py`), adapted to this
+repository's conventions: `$OPENOBSERVE_USER` / `$OPENOBSERVE_PASSWORD`,
+`agent/config/agent-urls.json`, and state under `~/.copilot-dashboard/`. **CLI only** — nothing done
+in VS Code chat reaches these streams, and chronicle is per machine, so it cannot be collected
+centrally the way an OTLP endpoint can.
+
+### The five streams, and why they are five
+
+One stream per row shape, because a stream with mixed grain cannot be aggregated safely:
+
+| Stream | Grain | Carries |
+| --- | --- | --- |
+| `copilot_chronicle_usage` | one model call | tokens, `ai_credits`, latency, finish reason |
+| `copilot_chronicle_costs` | one model call | the same credits split by token type, plus what the cache saved |
+| `copilot_chronicle_sessions` | one session | working directory, repository, branch |
+| `copilot_chronicle_files` | one file touched | path, and the tool that touched it |
+| `copilot_chronicle_turns` | one turn | when, and how long prompt and reply were — **lengths only** |
+| `copilot_chronicle_advice` | one captured report | the prose `/chronicle` writes (opt-in, see below) |
+
+`costs` shares its grain with `usage` and is still separate: OpenObserve has no upsert, so widening
+an already-loaded stream would mean re-sending everything, and a re-send cannot un-send the rows it
+duplicates.
+
+### What is deliberately never sent
+
+No prompt text, no replies, no session summaries, no checkpoint narratives. The `turns` table holds
+prompts and replies and is read *without ever selecting either column* — only `LENGTH(...)`, which
+SQLite evaluates, so two integers cross into the process. `sessions.summary` is excluded and
+`checkpoints` is never opened. The store itself is copied (with its `-wal`/`-shm` siblings) into a
+temp directory and opened `mode=ro`, so the file Copilot is using is never locked or checkpointed.
+`tests/test_chronicle_export.py` asserts all of this rather than trusting it.
+
+### Running it
+
+```bash
+export OPENOBSERVE_USER=admin@localhost.dev
+export OPENOBSERVE_PASSWORD='...'
+export OPENOBSERVE_BASE_URL=http://localhost:5080     # plain http: what a stock container listens for
+
+python openobserve/seed_schema.py openobserve/chronicle.dashboard.json   # register the columns
+python openobserve/push_dashboard.py openobserve/chronicle.dashboard.json
+python chronicle_export.py --since 2026-07-09 --dry-run                  # reads a copy, sends nothing
+python chronicle_export.py --since 2026-07-09                            # send it
+python openobserve/validate_dashboard_queries.py openobserve/chronicle.dashboard.json --var developer=$USER
+```
+
+Seed the schema **first**. OpenObserve registers a column the first time a record carries it, and a
+query naming a column it has never seen fails at planning — so an unseeded panel renders red rather
+than empty, which reads as a broken dashboard instead of an empty one. Every chronicle panel excludes
+`service_user = 'schema_seed'` by name; keep that exclusion when adding a panel, on both sides of any
+join.
+
+`--since` is a floor and worth setting. Chronicle's sessions and turns reach further back than its
+billed calls do, so without it the per-session ratios divide by sessions that could not have spent a
+credit; it also stops a machine set up today from loading years of history nobody was measuring.
+
+Re-running is safe. A high-water mark per source table
+(`~/.copilot-dashboard/chronicle_state.json`, or `$CHRONICLE_STATE`) advances only on a batch
+OpenObserve accepted in full, and every row carries `chronicle_row_id` that every panel dedupes on,
+so even a duplicated row changes no total. This is *not* the fingerprint state file the insights
+export uses (`openobserve_sent.json`): chronicle rows are immutable and counted in thousands, which
+is the wrong shape for a fingerprint set. `--reset` re-sends everything and cannot un-send — read
+what it prints.
+
+**One host-side prerequisite.** OpenObserve silently discards records older than
+`ZO_INGEST_ALLOWED_UPTO` hours *while still answering 200*, so a historical load can look like it
+worked and drop most of itself. Raise it (4320 = 180 days) before backfilling months of history. The
+export parses the per-record response rather than the HTTP code, so rejected rows are reported and
+the watermark does not advance over them.
+
+### Through the agent, on a schedule
+
+`agent/openobserve-agent.ps1` runs the chronicle export alongside the insights export, so the
+existing `CopilotDashboardOpenObserve` scheduled task covers both:
+
+```powershell
+.\agent\install-openobserve-agent.ps1 -IntervalMinutes 60 -ChronicleSince 2026-07-09
+.\agent\install-openobserve-agent.ps1 -NoChronicle          # insights only
+```
+
+`-ChronicleDb` defaults to `~/.copilot/session-store.db`, `-ChronicleBaseUrl` and `-ChronicleOrg` to
+the `ChronicleBaseUrl` and `ChronicleOrg` entries in `agent/config/agent-urls.json`. If the store does
+not exist the run logs that and carries on rather than failing. The same flags exist on the generator
+directly — `--chronicle`, `--chronicle-since`, `--chronicle-db`, `--chronicle-base-url`,
+`--chronicle-org`, `--chronicle-stream-url`, `--chronicle-state`, `--chronicle-stream`,
+`--chronicle-user`, `--chronicle-reset`, `--chronicle-dry-run` — and
+`$COPILOT_DASHBOARD_CHRONICLE=1` turns it on by default.
+
+#### Where each stream is written
+
+Base and org compose the URL per stream, so one setting moves all six:
+`{ChronicleBaseUrl}/api/{ChronicleOrg}/{stream}/_json`, e.g.
+`http://localhost:5080/api/default/copilot_chronicle_usage/_json`. Every send logs its endpoint
+(`sent 4892, failed 0 -> …`), and `--chronicle-dry-run` prints the target without posting.
+
+A server that does not follow that shape — a proxy, or one stream renamed without moving the rest —
+takes a full per-stream URL instead. Three equivalent ways to set it:
+
+```powershell
+# agent/config/agent-urls.json, which is what the scheduled task reads
+"ChronicleStreamUrls": { "copilot_chronicle_turns": "https://oo.example.com/api/team/turns_v2/_json" }
+```
+
+```powershell
+.\agent\openobserve-agent.ps1 -ChronicleStreamUrls @{ copilot_chronicle_turns = 'https://…/_json' }
+python generate_dashboard.py --chronicle --chronicle-stream-url copilot_chronicle_turns=https://…/_json
+```
+
+`$CHRONICLE_STREAM_URLS` holds the same mapping as JSON text and applies to `chronicle_export.py` and
+`chronicle_advice.py` too (`--stream-url` on both). Streams left out of the mapping keep the derived
+form; unparseable JSON is ignored rather than fatal, so a typo cannot stop the other streams.
+
+### The prose panels, which are the only part that costs money
+
+`chronicle_advice.py` is a different kind of thing and should be decided on separately. It runs
+`/chronicle standup`, `tips`, `cost-tips` and `improve` over the Agent Client Protocol and stores the
+prose they produce. **Every run is a billed model call charged to your own account** — roughly 40–130
+seconds each, one call per subcommand plus a second to summarise it unless `--no-summary` is passed.
+Chronicle records those calls like any other, so the next export puts them onto the very panels they
+fill.
+
+```bash
+python chronicle_advice.py --dry-run          # the plan, spends nothing
+python chronicle_advice.py                    # all four
+python chronicle_advice.py --command tips     # just one
+```
+
+It grants the CLI no tools at all, declines filesystem and terminal access at the handshake, and
+answers every permission request with "cancelled" — so `improve` returns proposed text instead of
+editing anything. That stops writes, not reads: the agent's own read-only tools need no
+confirmation, so `--cwd` is the control that matters for what it can read.
+
+> **Read one captured row before putting this on an instance other people can see.** It is not
+> anyone's prompts, but it is a model writing *about* someone's history, so it names projects, files
+> and session ids.
+
+Weekly is the honest cadence: the numeric panels are free and go stale daily, while `tips` and
+`improve` comment on habits, which change over weeks.
+
+> Separately, and unrelated to this repository: Copilot's own chronicle feature exports your CLI
+> sessions to your GitHub account unless `{"remoteExport": false}` is set in
+> `~/.copilot/settings.json`. Nothing here can prevent that.
+
 ## Generate a static HTML file
 
 From the project directory:
@@ -421,6 +572,12 @@ Common approaches:
 - `model_pricing.py` — the published per-model rate table used as the estimation fallback
 - `diagnostics.py` — collects parse/cache failures and carries them to the UI, so a dropped session shows up as a warning instead of a quietly lower total
 - `generate_dashboard.py` — CLI entrypoint for static HTML generation
+- `chronicle_export.py` — replays the CLI session store's history into the `copilot_chronicle_*` OpenObserve streams (numbers only; never prompt or reply text)
+- `chronicle_advice.py` — captures the prose `/chronicle` writes, over the Agent Client Protocol. Opt-in: every run is a billed model call
+- `openobserve/chronicle.dashboard.json` — the chronicle dashboard (history and per-developer insights), pushed with `openobserve/push_dashboard.py`
+- `openobserve/seed_schema.py` — registers every chronicle column so a panel with no data reads empty instead of red
+- `openobserve/validate_dashboard_queries.py` — runs every panel query against a live OpenObserve; exit code is the failure count
+- `openobserve/oo_api.py` — the management-API helper those three share
 - `serve_dashboard.py` — live HTTP server that regenerates the dashboard on request
 - `remote_start.sh` — cache-only remote launcher that writes compact/full caches without serving HTML
 - `copilot-token-dashboard.service` — starter user-level systemd unit

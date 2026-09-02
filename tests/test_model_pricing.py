@@ -11,12 +11,36 @@ from model_pricing import (
     calculate_cost,
     cost_from_token_counts,
     get_pricing,
+    load_cached_pricing,
+    pricing_cache_path,
     get_rates,
     nano_aiu_to_usd,
     prompt_split_overflow,
     split_prompt_tokens,
     usd_to_nano_aiu,
 )
+
+
+def test_load_cached_pricing_applies_valid_api_document(tmp_path, monkeypatch):
+    cache_path = tmp_path / "pricing.json"
+    cache_path.write_text(
+        '{"pricing":{"api-model":{"input":1,"cached":0.1,"output":2}}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("COPILOT_PRICING_CACHE_PATH", str(cache_path))
+
+    assert pricing_cache_path() == str(cache_path)
+    assert load_cached_pricing()
+    assert get_pricing("api-model") == {"input": 1.0, "cached": 0.1, "output": 2.0}
+
+
+def test_invalid_cached_pricing_does_not_replace_existing_rates(tmp_path, monkeypatch):
+    cache_path = tmp_path / "pricing.json"
+    cache_path.write_text('{"pricing":{"bad":{}}}', encoding="utf-8")
+    monkeypatch.setenv("COPILOT_PRICING_CACHE_PATH", str(cache_path))
+
+    assert not load_cached_pricing()
+    assert get_pricing("gpt-5.4")["input"] == 2.5
 
 
 def test_get_pricing_exact_match():

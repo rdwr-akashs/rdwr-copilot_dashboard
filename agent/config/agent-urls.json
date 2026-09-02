@@ -1,0 +1,7 @@
+{
+  "OpenObserveUrl": "https://localhost:5080/api/default/insights/_json",
+  "ChronicleBaseUrl": "http://localhost:5080",
+  "ChronicleOrg": "default",
+  "ChronicleStreamUrls": {},
+  "PricingApiUrl": "https://localhost:8080/v1/copilot-pricing"
+}

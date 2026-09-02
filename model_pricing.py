@@ -14,6 +14,8 @@ import struct
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -178,6 +180,116 @@ AIU_USD = 0.01
 NANO_AIU_PER_AIU = 1_000_000_000
 NANO_AIU_USD = AIU_USD / NANO_AIU_PER_AIU  # 1e-11
 
+ENV_PRICING_API_URL = "COPILOT_PRICING_API_URL"
+ENV_PRICING_CACHE_PATH = "COPILOT_PRICING_CACHE_PATH"
+ENV_PRICING_CACHE_DAYS = "COPILOT_PRICING_CACHE_DAYS"
+# A centrally hosted pricing-service endpoint lets each developer machine
+# refresh frequently while the last valid cache remains available offline.
+DEFAULT_PRICING_CACHE_DAYS = 1 / 24
+
+
+def pricing_cache_path() -> str:
+    configured = os.environ.get(ENV_PRICING_CACHE_PATH)
+    if configured:
+        return os.path.abspath(os.path.expanduser(configured))
+    return os.path.join(os.path.expanduser("~"), ".copilot-dashboard", "model_pricing.json")
+
+
+def _pricing_cache_is_fresh(path: str, refresh_days: int) -> bool:
+    try:
+        return time.time() - os.path.getmtime(path) < refresh_days * 86_400
+    except OSError:
+        return False
+
+
+def _read_pricing_document(path: str) -> dict[str, Any] | None:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            document = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    pricing = document.get("pricing") if isinstance(document, dict) else None
+    return document if isinstance(pricing, dict) else None
+
+
+def _apply_pricing_document(document: dict[str, Any]) -> bool:
+    pricing = document.get("pricing")
+    if not isinstance(pricing, dict) or not pricing:
+        return False
+    normalized: dict[str, dict[str, float]] = {}
+    for model, rates in pricing.items():
+        if not isinstance(model, str) or not isinstance(rates, dict):
+            return False
+        try:
+            normalized[model.lower()] = {
+                "input": float(rates["input"]),
+                "cached": float(rates["cached"]),
+                "output": float(rates["output"]),
+            }
+        except (KeyError, TypeError, ValueError):
+            return False
+    PRICING.update(normalized)
+    cache_write = document.get("cacheWritePricing")
+    if isinstance(cache_write, dict):
+        CACHE_WRITE_PRICING.update({str(name).lower(): float(rate) for name, rate in cache_write.items()})
+    long_context = document.get("longContextPricing")
+    if isinstance(long_context, dict):
+        LONG_CONTEXT_PRICING.update({str(name).lower(): dict(rate) for name, rate in long_context.items() if isinstance(rate, dict)})
+    _refresh_pricing_match_keys()
+    return True
+
+
+def _refresh_pricing_match_keys() -> None:
+    global _PRICING_MATCH_KEYS, _CACHE_WRITE_MATCH_KEYS, _LONG_CONTEXT_MATCH_KEYS
+    _PRICING_MATCH_KEYS = match_keys(PRICING)
+    _CACHE_WRITE_MATCH_KEYS = match_keys(CACHE_WRITE_PRICING)
+    _LONG_CONTEXT_MATCH_KEYS = match_keys(LONG_CONTEXT_PRICING)
+
+
+def load_cached_pricing() -> bool:
+    """Apply a previously validated pricing API response without network access."""
+    document = _read_pricing_document(pricing_cache_path())
+    return bool(document and _apply_pricing_document(document))
+
+
+def refresh_pricing_from_api(force: bool = False, timeout: float = 10.0) -> bool:
+    """Refresh cached pricing from `COPILOT_PRICING_API_URL` when it is stale.
+
+    The endpoint must return JSON with a required `pricing` object, where each
+    model has numeric `input`, `cached`, and `output` USD-per-million rates.
+    Optional `cacheWritePricing` and `longContextPricing` objects use this
+    module's existing table shapes. An invalid/unavailable response leaves the
+    existing cache and embedded fallback untouched.
+    """
+    url = os.environ.get(ENV_PRICING_API_URL)
+    if not url:
+        return load_cached_pricing()
+    try:
+        refresh_days = max(1 / 24, float(os.environ.get(ENV_PRICING_CACHE_DAYS, DEFAULT_PRICING_CACHE_DAYS)))
+    except ValueError:
+        refresh_days = DEFAULT_PRICING_CACHE_DAYS
+    path = pricing_cache_path()
+    if not force and _pricing_cache_is_fresh(path, refresh_days):
+        return load_cached_pricing()
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            document = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError):
+        return load_cached_pricing()
+    if not isinstance(document, dict) or not _apply_pricing_document(document):
+        return load_cached_pricing()
+    try:
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        temporary = f"{path}.{os.getpid()}.tmp"
+        with open(temporary, "w", encoding="utf-8") as handle:
+            json.dump(document, handle, sort_keys=True)
+        os.replace(temporary, path)
+    except OSError:
+        pass
+    return True
+
 # The billed token categories GitHub prices separately, in the order they are
 # reported. `cache_read`/`cache_write` are the wire names used by the CLI's
 # `token_details_json`; `input` there means the *uncached* remainder of the
@@ -226,6 +338,10 @@ def match_keys(table) -> list[str]:
 _PRICING_MATCH_KEYS = match_keys(PRICING)
 _CACHE_WRITE_MATCH_KEYS = match_keys(CACHE_WRITE_PRICING)
 _LONG_CONTEXT_MATCH_KEYS = match_keys(LONG_CONTEXT_PRICING)
+
+# Network refresh is opt-in through COPILOT_PRICING_API_URL; a valid local cache
+# is always safe to apply during import.
+load_cached_pricing()
 
 
 def _match(model_name: str | None, table, keys) -> Any | None:

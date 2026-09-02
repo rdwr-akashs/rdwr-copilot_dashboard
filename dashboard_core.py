@@ -50,6 +50,8 @@ from cli_usage import (
 from usage_model import records_from_chat_sessions, records_from_cli, build_unified
 from premium_requests import load_config as load_premium_config, build_budget, get_multiplier, MULTIPLIERS, PLAN_ALLOWANCES
 from insights_engine import build_insights_with_diagnostics
+from openobserve_export import export_insights as export_insights_to_openobserve
+from chronicle_export import export_chronicle
 
 def discover_log_dirs() -> list[str]:
     if os.environ.get("COPILOT_DEBUG_LOGS"):
@@ -104,6 +106,17 @@ _ANONYMIZE_SALT_FILENAME = "anonymize_salt"
 def _env_flag(name: str) -> bool:
     """Parse a boolean-ish environment variable (1/true/yes/on, case-insensitive)."""
     return str(os.environ.get(name, "")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _stream_url_pairs(parser, pairs: list[str]) -> dict[str, str] | None:
+    """Turn repeated `--chronicle-stream-url NAME=URL` values into a mapping."""
+    resolved: dict[str, str] = {}
+    for pair in pairs or []:
+        name, _, url = pair.partition("=")
+        if not name.strip() or not url.strip():
+            parser.error(f"--chronicle-stream-url expects NAME=URL, got {pair!r}")
+        resolved[name.strip()] = url.strip()
+    return resolved or None
 
 
 def _anonymize_salt_path() -> str:
@@ -451,6 +464,7 @@ def compose_app_data(
     # them: the live server re-composes on a fingerprint change, and a stale
     # "cache corrupt" banner after the cache was repaired would be its own bug.
     diagnostics.reset()
+    refresh_pricing_from_api()
 
     resolved_log_dirs = log_dirs or discover_log_dirs()
     if not resolved_log_dirs:
@@ -619,7 +633,50 @@ def write_dashboard(
   premium_quota: int | None = None,
   premium_config_path: str | None = None,
   anonymize: bool = False,
+  openobserve: bool = False,
+  openobserve_url: str | None = None,
+  openobserve_stream: str | None = None,
+  openobserve_dedupe: bool = True,
+  openobserve_state_path: str | None = None,
+  openobserve_dedupe_mode: str = "identity",
+  openobserve_insecure_tls: bool = False,
+  chronicle: bool = False,
+  chronicle_db: str | None = None,
+  chronicle_base_url: str | None = None,
+  chronicle_org: str | None = None,
+  chronicle_stream_urls: dict[str, str] | str | None = None,
+  chronicle_since: str | None = None,
+  chronicle_state_path: str | None = None,
+  chronicle_streams: list[str] | None = None,
+  chronicle_user: str | None = None,
+  chronicle_reset: bool = False,
+  chronicle_dry_run: bool = False,
 ) -> str:
+    if chronicle:
+      # Independent of the HTML below and of the insights export: this replays the Copilot CLI's
+      # own session store into the copilot_chronicle_* streams, which is what fills the chronicle
+      # dashboard. Run first so a failure in the (much longer) log parse below cannot cost a day of
+      # history, and so its own failure never stops the HTML from being written.
+      chronicle_result = export_chronicle(
+        db_path=chronicle_db or cli_db_path,
+        base_url=chronicle_base_url,
+        org=chronicle_org,
+        stream_urls=chronicle_stream_urls,
+        user=chronicle_user,
+        since=chronicle_since,
+        state_path=chronicle_state_path,
+        streams=chronicle_streams,
+        reset=chronicle_reset,
+        dry_run=chronicle_dry_run,
+        insecure_tls=openobserve_insecure_tls or None,
+        log=lambda message: print(f"chronicle: {message}", file=sys.stderr),
+      )
+      if not chronicle_result.get("ok"):
+        print(
+          "Chronicle export failed: %s"
+          % (chronicle_result.get("error") or "%d row(s) rejected" % chronicle_result.get("failed", 0)),
+          file=sys.stderr,
+        )
     app_data = compose_app_data(
       log_dirs=log_dirs,
       cache_root_dir=cache_root_dir,
@@ -633,6 +690,22 @@ def write_dashboard(
       premium_config_path=premium_config_path,
       anonymize=anonymize,
     )
+    if openobserve:
+      result = export_insights_to_openobserve(
+        app_data,
+        url=openobserve_url,
+        stream=openobserve_stream,
+        dedupe=openobserve_dedupe,
+        dedupe_state_path=openobserve_state_path,
+        dedupe_mode=openobserve_dedupe_mode,
+        insecure_tls=openobserve_insecure_tls,
+      )
+      if result.get("ok"):
+        skipped = result.get("duplicatesSkipped", 0)
+        suffix = f" ({skipped} duplicate event(s) skipped)" if skipped else ""
+        print(f"OpenObserve: sent {result.get('sent', 0)} insight event(s) to {result.get('url')}{suffix}", file=sys.stderr)
+      else:
+        print(f"OpenObserve export failed ({result.get('url')}): {result.get('error') or result.get('response')}", file=sys.stderr)
     html = generate_html(app_data)
     output_path = os.path.abspath(os.path.expanduser(output_file)) if output_file else default_output_path()
     output_dir = os.path.dirname(output_path)
@@ -722,6 +795,157 @@ def main(argv: list[str] | None = None) -> None:
         "Default: $COPILOT_DASHBOARD_ANONYMIZE, else off."
       ),
     )
+    parser.add_argument(
+      "--openobserve",
+      action="store_true",
+      default=_env_flag("COPILOT_DASHBOARD_OPENOBSERVE"),
+      help=(
+        "Also POST the computed insights (insights_engine.py) to an OpenObserve stream. "
+        "Credentials come from $OPENOBSERVE_USER / $OPENOBSERVE_PASSWORD."
+      ),
+    )
+    parser.add_argument(
+      "--openobserve-url",
+      default=None,
+      help=(
+        "Full OpenObserve JSON ingestion URL, e.g. http://localhost:5080/api/default/insights/_json. "
+        "Default: $OPENOBSERVE_URL, else built from $OPENOBSERVE_BASE_URL/$OPENOBSERVE_ORG/$OPENOBSERVE_STREAM."
+      ),
+    )
+    parser.add_argument(
+      "--openobserve-insecure-tls",
+      action="store_true",
+      default=os.environ.get("OPENOBSERVE_INSECURE_TLS", "").lower() in {"1", "true", "yes"},
+      help="Allow an HTTPS OpenObserve endpoint with a self-signed certificate. Use only for a trusted endpoint.",
+    )
+    parser.add_argument(
+      "--openobserve-stream",
+      default=None,
+      help="OpenObserve stream name to ingest into (default: $OPENOBSERVE_STREAM, else 'insights').",
+    )
+    parser.add_argument(
+      "--openobserve-resend-all",
+      action="store_true",
+      default=False,
+      help=(
+        "Send every event even if an identical one was already ingested. "
+        "By default repeated runs skip events already accepted by the same endpoint."
+      ),
+    )
+    parser.add_argument(
+      "--openobserve-dedupe-mode",
+      choices=["identity", "content"],
+      default=os.environ.get("OPENOBSERVE_DEDUPE_MODE") or "identity",
+      help=(
+        "'identity' (default) ships each recurring finding once, even when its cost estimate "
+        "drifts between runs. 'content' re-ships a finding whenever any of its numbers change."
+      ),
+    )
+    parser.add_argument(
+      "--openobserve-state",
+      default=None,
+      help=(
+        "Path to the de-duplication state file tracking already-sent events "
+        "(default: $OPENOBSERVE_DEDUPE_STATE, else ~/.copilot-dashboard/openobserve_sent.json)."
+      ),
+    )
+    parser.add_argument(
+      "--chronicle",
+      action="store_true",
+      default=_env_flag("COPILOT_DASHBOARD_CHRONICLE"),
+      help=(
+        "Also replay the Copilot CLI's session store into the copilot_chronicle_* streams "
+        "(chronicle_export.py), which is what fills the chronicle dashboard. Incremental: a "
+        "high-water mark per source table means only new rows are sent. Independent of "
+        "--openobserve, which ships computed insights instead. Credentials come from the same "
+        "$OPENOBSERVE_USER / $OPENOBSERVE_PASSWORD pair."
+      ),
+    )
+    parser.add_argument(
+      "--chronicle-db",
+      default=None,
+      help="Chronicle store to read (default: --cli-db, else ~/.copilot/session-store.db).",
+    )
+    parser.add_argument(
+      "--chronicle-base-url",
+      default=None,
+      help=(
+        "OpenObserve base URL for the chronicle streams, e.g. http://localhost:5080. Not the same "
+        "shape as --openobserve-url: chronicle writes five streams, so it takes a base and appends "
+        "each stream itself. Default: $OPENOBSERVE_BASE_URL, else http://localhost:5080."
+      ),
+    )
+    parser.add_argument(
+      "--chronicle-org",
+      default=None,
+      help=(
+        "OpenObserve org the chronicle streams are written to, which is the '/api/<org>/' segment "
+        "of each stream URL. Default: $OPENOBSERVE_ORG, else 'default'."
+      ),
+    )
+    parser.add_argument(
+      "--chronicle-stream-url",
+      action="append",
+      default=[],
+      metavar="NAME=URL",
+      help=(
+        "Full ingest URL for one chronicle stream, repeatable, e.g. --chronicle-stream-url "
+        "copilot_chronicle_turns=https://oo.example.com/api/team/turns/_json. Overrides "
+        "--chronicle-base-url/--chronicle-org for that stream only; the others keep the derived "
+        "form. Default: $CHRONICLE_STREAM_URLS, a JSON object keyed by stream name."
+      ),
+    )
+    parser.add_argument(
+      "--chronicle-since",
+      default=os.environ.get("CHRONICLE_SINCE"),
+      metavar="DATE",
+      help=(
+        "Skip chronicle rows older than this, e.g. 2026-07-09. Worth setting: sessions and turns "
+        "reach further back than billed calls do, so without a floor the per-session ratios divide "
+        "by sessions that could not have spent a credit."
+      ),
+    )
+    parser.add_argument(
+      "--chronicle-state",
+      default=None,
+      help=(
+        "Path to the chronicle high-water-mark file (default: $CHRONICLE_STATE, else "
+        "~/.copilot-dashboard/chronicle_state.json). Separate from --openobserve-state on purpose: "
+        "chronicle rows are immutable and counted in thousands, so they are tracked by a watermark "
+        "per table rather than by a fingerprint per event."
+      ),
+    )
+    parser.add_argument(
+      "--chronicle-stream",
+      action="append",
+      default=[],
+      metavar="NAME",
+      help="Only this chronicle stream, repeatable. Lets --chronicle-reset be aimed at one stream.",
+    )
+    parser.add_argument(
+      "--chronicle-user",
+      default=None,
+      help=(
+        "Value written to service_user on chronicle rows, which the dashboard's Developer filter "
+        "matches on. Default: $COPILOT_USER, else the logged-in user."
+      ),
+    )
+    parser.add_argument(
+      "--chronicle-reset",
+      action="store_true",
+      default=False,
+      help=(
+        "Ignore the chronicle high-water mark and resend everything. Cannot un-send: OpenObserve "
+        "has no upsert, so rows are duplicated rather than replaced. Every panel dedupes on "
+        "chronicle_row_id so no total changes, but a raw COUNT(*) reads high."
+      ),
+    )
+    parser.add_argument(
+      "--chronicle-dry-run",
+      action="store_true",
+      default=False,
+      help="Print what chronicle would send, send nothing, write no state.",
+    )
     args = parser.parse_args(argv)
 
     # Clamp workers between 1 and 64
@@ -744,6 +968,24 @@ def main(argv: list[str] | None = None) -> None:
       premium_quota=args.premium_quota,
       premium_config_path=args.premium_config,
       anonymize=bool(args.anonymize),
+      openobserve=bool(args.openobserve),
+      openobserve_url=args.openobserve_url,
+      openobserve_stream=args.openobserve_stream,
+      openobserve_dedupe=not bool(args.openobserve_resend_all),
+      openobserve_state_path=args.openobserve_state,
+      openobserve_dedupe_mode=args.openobserve_dedupe_mode,
+      openobserve_insecure_tls=bool(args.openobserve_insecure_tls),
+      chronicle=bool(args.chronicle),
+      chronicle_db=args.chronicle_db,
+      chronicle_base_url=args.chronicle_base_url,
+      chronicle_org=args.chronicle_org,
+      chronicle_stream_urls=_stream_url_pairs(parser, args.chronicle_stream_url),
+      chronicle_since=args.chronicle_since,
+      chronicle_state_path=args.chronicle_state,
+      chronicle_streams=args.chronicle_stream,
+      chronicle_user=args.chronicle_user,
+      chronicle_reset=bool(args.chronicle_reset),
+      chronicle_dry_run=bool(args.chronicle_dry_run),
     )
     print(f"Dashboard written to: {output_path}", file=sys.stderr)
     print(output_path)
