@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from insights_engine import DEFAULT_CONFIG, build_insights, build_insights_with_diagnostics
+from insights_engine import DEFAULT_CONFIG, _fmt_credits, build_insights, build_insights_with_diagnostics
 
 REQUIRED_INSIGHT_KEYS = {
     "id", "severity", "title", "detail", "source", "evidence",
@@ -141,3 +141,29 @@ def test_substitution_savings_prices_the_hypothetical_at_the_per_call_tier():
     assert evidence["hypotheticalCost"] == pytest.approx(default_tier_cost, abs=1e-4)
     assert evidence["hypotheticalCost"] < long_tier_cost
     assert insight["estimatedSavings"]["cost"] == pytest.approx(20.0 - default_tier_cost, abs=1e-4)
+
+
+@pytest.mark.parametrize(
+    ("cost_usd", "expected"),
+    [
+        (0.0, "0.00 cr"),
+        (0.0003, "0.03 cr"),
+        (0.075, "7.50 cr"),
+        (0.5, "50.0 cr"),
+        (12.3456, "1,235 cr"),
+    ],
+)
+def test_fmt_credits_reports_spend_in_credits_not_dollars(cost_usd, expected):
+    # Insight prose has to read in the same unit as the panel around it: the
+    # dashboard reports AI credits (1 credit = $0.01), never dollars.
+    assert _fmt_credits(cost_usd) == expected
+
+
+def test_insight_details_never_quote_a_dollar_figure():
+    app_data = {
+        "sessions": [],
+        "cli": {"sessions": [], "byModel": []},
+        "premium": {"budget": {}},
+    }
+    for insight in build_insights(app_data):
+        assert "$" not in insight["detail"] or "$0.01" in insight["detail"], insight["detail"]

@@ -209,7 +209,7 @@ function syncLegacyUsagePeriod() {
 // Tabs that only make sense for one source; when the global source filter
 // excludes that source, the tab button itself is hidden from the tab bar
 // (see app.js renderTabs()) rather than left clickable-but-empty.
-const TAB_SOURCE_REQUIREMENT = { chats: 'chat', cli: 'cli' };
+const TAB_SOURCE_REQUIREMENT = { chats: 'chat', cli: 'cli', chronicle: 'cli' };
 
 export function setFilter(key, value) {
   if (!VALID_FILTER_KEYS.has(key)) return;
@@ -288,7 +288,7 @@ export function decodeHashIntoState() {
   }
 
   const tab = params.get('tab');
-  if (tab && ['overview', 'chats', 'analysis', 'cli', 'reference'].includes(tab)) {
+  if (tab && ['overview', 'chats', 'analysis', 'cli', 'chronicle', 'reference'].includes(tab)) {
     STATE.activeTab = tab;
   }
   const subtab = params.get('subtab');

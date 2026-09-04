@@ -1,7 +1,7 @@
 import { monthlyTrendMetricConfig, visibleCliSessions } from './aggregate.js';
 import { renderApp } from './app.js';
 import { renderMonthlyTrendChart } from './charts.js';
-import { calcModelCost, costLabel, costProvenance, costProvenanceBadge, creditsFromCost, escapeHtml, formatCost, formatCreditValue, formatDuration, formatInteger, formatPercent, formatSigned, formatTimestamp } from './format.js';
+import { calcModelCost, costLabel, costProvenance, costProvenanceBadge, creditsFromCost, escapeHtml, formatCost, formatDuration, formatInteger, formatPercent, formatSigned, formatTimestamp } from './format.js';
 import { openChatDeleteModal } from './modals.js';
 import { APP_DATA, HIDDEN_CLI_SESSION_IDS, PRICING_TABLE, STATE, markCliSessionsHidden, restoreHiddenCliSessions } from './state.js';
 import { renderStatCell, renderTable } from './tables.js';
@@ -510,7 +510,7 @@ import { renderStatCell, renderTable } from './tables.js';
             <thead>
               <tr>
                 <th>Repository</th><th>Branch</th><th class="num">Sessions</th>
-                <th class="num">Input</th><th class="num">Output</th><th class="num">Cost</th><th class="num">Premium reqs (legacy est.)</th>
+                <th class="num">Input</th><th class="num">Output</th><th class="num">AI credits</th><th class="num">Premium reqs (legacy est.)</th>
               </tr>
             </thead>
             <tbody>
@@ -791,8 +791,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
             <div class="summary-card"><div class="label">Cached-read input</div><div class="value cached">${formatInteger(summary.totalCached)}</div></div>
             <div class="summary-card" title="Prompt tokens written into the provider cache. Billed at their own, higher rate (1.25x input for Anthropic models) — not at the input rate."><div class="label">Cache-write input</div><div class="value">${formatInteger(summary.totalCacheWrite)}</div></div>
             <div class="summary-card"><div class="label">Output tokens</div><div class="value output">${formatInteger(summary.totalOutput)}</div></div>
-            <div class="summary-card"><div class="label">${costLabel(summary)}</div><div class="value cost">${formatCost(summary.totalCost)}</div><div class="note small">${costProvenanceBadge(summary)}</div></div>
-            <div class="summary-card" title="GitHub meters paid plans in AI credits: 1 credit = $0.01 of model usage."><div class="label">AI credits</div><div class="value cost">${formatCreditValue(summary.totalCost)}</div></div>
+            <div class="summary-card" title="GitHub meters paid plans in AI credits: 1 credit = $0.01 of model usage."><div class="label">${costLabel(summary)}</div><div class="value cost">${formatCost(summary.totalCost)}</div><div class="note small">${costProvenanceBadge(summary)}</div></div>
             <div class="summary-card"><div class="label">Files touched</div><div class="value">${formatInteger(summary.fileCount)}</div></div>
             <div class="summary-card" title="Legacy per-prompt meter. Credit-billed plans are metered on cost instead — see the AI credit budget on Overview."><div class="label">Premium requests</div><div class="value">${formatInteger(totalPremiumRequests)}</div><div class="note small">legacy est.</div></div>
             ${cli.otelAvailable ? `<div class="summary-card"><div class="label">Tool calls</div><div class="value">${formatInteger(summary.toolCallCount)}</div><div class="note small">from OTel</div></div>` : ''}
@@ -812,8 +811,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
         { title: 'Cached-read input', numeric: true, render: (row) => `<span class="value cached">${formatInteger(row.cached)}</span>` },
         { title: 'Cache-write input', numeric: true, render: (row) => `<span class="value">${formatInteger(row.cacheWrite)}</span>` },
         { title: 'Output', numeric: true, render: (row) => `<span class="value output">${formatInteger(row.output)}</span>` },
-        { title: 'Cost', numeric: true, render: (row) => `<div><span class="value cost">${formatCost(row.cost)}</span><div class="note small">${costProvenanceBadge(row)}</div></div>` },
-        { title: 'Credits', numeric: true, render: (row) => `<span class="value cost">${formatCreditValue(row.cost)}</span>` },
+        { title: 'AI credits', numeric: true, render: (row) => `<div><span class="value cost">${formatCost(row.cost)}</span><div class="note small">${costProvenanceBadge(row)}</div></div>` },
         { title: 'Premium reqs (legacy est.)', numeric: true, render: (row) => formatInteger(row.premiumRequests) },
       ], byModelRows);
 
@@ -965,8 +963,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
           <div class="meta-card"><div class="label">Cached-read</div><div class="value cached">${formatInteger(session.cached)}</div></div>
           <div class="meta-card" title="Prompt tokens written into the provider cache, billed at their own higher rate."><div class="label">Cache-write</div><div class="value">${formatInteger(session.cacheWrite)}</div></div>
           <div class="meta-card"><div class="label">Total output</div><div class="value output">${formatInteger(session.output)}</div></div>
-          <div class="meta-card"><div class="label">${costLabel(session)}</div><div class="value cost">${formatCost(session.cost)}</div><div class="note small">${costProvenanceBadge(session)}</div></div>
-          <div class="meta-card" title="1 AI credit = $0.01 of model usage."><div class="label">AI credits</div><div class="value cost">${formatCreditValue(session.cost)}</div></div>
+          <div class="meta-card" title="1 AI credit = $0.01 of model usage."><div class="label">${costLabel(session)}</div><div class="value cost">${formatCost(session.cost)}</div><div class="note small">${costProvenanceBadge(session)}</div></div>
           <div class="meta-card"><div class="label">Cache hit rate</div><div class="value cached">${formatPercent(session.input ? (session.cached / session.input) * 100 : 0)}</div></div>
           <div class="meta-card"><div class="label">Files touched</div><div class="value">${formatInteger((session.files || []).length)}</div></div>
           <div class="meta-card"><div class="label">Created</div><div class="value">${escapeHtml(formatTimestamp(session.createdAt))}</div></div>
@@ -981,7 +978,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
         <div class="event-section" style="margin-bottom:14px">
           <h4>Per-model breakdown</h4>
           <table>
-            <thead><tr><th>Model</th><th class="num">Calls</th><th class="num">Input</th><th class="num">Cached-read</th><th class="num">Cache-write</th><th class="num">Output</th><th class="num">Cost</th><th class="num">Credits</th></tr></thead>
+            <thead><tr><th>Model</th><th class="num">Calls</th><th class="num">Input</th><th class="num">Cached-read</th><th class="num">Cache-write</th><th class="num">Output</th><th class="num">AI credits</th></tr></thead>
             <tbody>
               ${rows.map((row) => `<tr>
                 <td>${escapeHtml(row.model)}</td>
@@ -991,7 +988,6 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
                 <td class="num"><span class="value">${formatInteger(row.cacheWrite)}</span></td>
                 <td class="num"><span class="value output">${formatInteger(row.output)}</span></td>
                 <td class="num"><span class="value cost">${formatCost(row.cost)}</span> ${costProvenanceBadge(row)}</td>
-                <td class="num"><span class="value cost">${formatCreditValue(row.cost)}</span></td>
               </tr>`).join('')}
             </tbody>
           </table>
@@ -1151,16 +1147,16 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
 
       document.getElementById('modelCompareModalContent').innerHTML = `
         <div class="note small" style="margin-bottom:12px">Estimated cost if this session's total token usage (<strong>${formatInteger(inputTokens)}</strong> input, of which <strong>${formatInteger(cachedTokens)}</strong> cached reads and <strong>${formatInteger(cacheWriteTokens)}</strong> cache writes, plus <strong>${formatInteger(outputTokens)}</strong> output) was processed by each model. Assumes the same cache hit pattern.</div>
-        <div class="note small" style="margin-bottom:12px">Every figure in the <strong>Est. Cost</strong> column is priced from the published rate table, so it carries that table's caveats — notably that the 10% auto-model-selection discount is not modelled. The <strong>vs actual</strong> column compares against ${escapeHtml(actualProvenance.exact ? "this session's billed cost, which is exact" : "this session's estimated cost, which is itself approximate")}, so read small differences with that in mind.</div>
+        <div class="note small" style="margin-bottom:12px">Every figure in the <strong>Est. AI credits</strong> column is priced from the published rate table, so it carries that table's caveats — notably that the 10% auto-model-selection discount is not modelled. The <strong>vs actual</strong> column compares against ${escapeHtml(actualProvenance.exact ? "this session's billed credit charge, which is exact" : "this session's estimated credit charge, which is itself approximate")}, so read small differences with that in mind.</div>
         <div style="overflow-x:auto">
         <table>
           <thead><tr>
             <th>Model</th>
-            <th class="num">Input $/M</th>
-            <th class="num">Cached $/M</th>
-            <th class="num" title="Writing a prompt into the provider cache. Models that do not price cache writes show $0.">Cache-write $/M</th>
-            <th class="num">Output $/M</th>
-            <th class="num">Est. Cost</th>
+            <th class="num">Input cr/M</th>
+            <th class="num">Cached cr/M</th>
+            <th class="num" title="Writing a prompt into the provider cache. Models that do not price cache writes show 0.00 cr.">Cache-write cr/M</th>
+            <th class="num">Output cr/M</th>
+            <th class="num">Est. AI credits</th>
             <th class="num">vs actual</th>
           </tr></thead>
           <tbody>

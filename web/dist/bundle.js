@@ -9,7 +9,7 @@
     filters: "copilot-dashboard-filters-v1",
     theme: "copilot-dashboard-theme-v1"
   };
-  var VALID_TABS = /* @__PURE__ */ new Set(["overview", "chats", "analysis", "cli", "reference"]);
+  var VALID_TABS = /* @__PURE__ */ new Set(["overview", "chats", "analysis", "cli", "chronicle", "reference"]);
   function loadLastTab() {
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.lastTab);
@@ -359,21 +359,26 @@
     if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
     return Math.round(n).toString();
   }
-  function formatCost(value) {
-    const n = Number(value || 0);
-    if (Math.abs(n) >= 1) {
-      return `$${n.toLocaleString(void 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    }
-    return `$${n.toFixed(4)}`;
-  }
   var CREDIT_USD = 0.01;
   function creditsFromCost(cost) {
     return Number(cost || 0) / CREDIT_USD;
   }
+  function formatCreditCount(credits) {
+    const value = Number(credits || 0);
+    const magnitude = Math.abs(value);
+    if (magnitude >= 1e3) return Math.round(value).toLocaleString();
+    if (magnitude >= 10) return value.toFixed(1);
+    if (magnitude >= 0.01 || value === 0) return value.toFixed(2);
+    return value.toFixed(4);
+  }
   function formatCreditValue(cost) {
-    const credits = creditsFromCost(cost);
-    if (Math.abs(credits) >= 1e3) return Math.round(credits).toLocaleString();
-    return credits.toFixed(1);
+    return formatCreditCount(creditsFromCost(cost));
+  }
+  function formatCreditUnits(credits) {
+    return `${formatCreditCount(credits)} cr`;
+  }
+  function formatCost(value) {
+    return `${formatCreditValue(value)} cr`;
   }
   var COST_SOURCE_INFO = {
     billed: {
@@ -415,7 +420,7 @@
     const p = costProvenance(row);
     return `<span class="badge ${p.badgeClass}" title="${escapeHtml(p.title)}">${escapeHtml(p.label)}</span>`;
   }
-  function costLabel(row, noun = "cost") {
+  function costLabel(row, noun = "AI credits") {
     return costProvenance(row).exact ? `Billed ${noun}` : `Estimated ${noun}`;
   }
   function formatDuration(ms) {
@@ -611,7 +616,7 @@
     if (STATE.filters.period === "month") STATE.usagePeriod = "monthly";
     else if (STATE.filters.period === "all") STATE.usagePeriod = "allTime";
   }
-  var TAB_SOURCE_REQUIREMENT = { chats: "chat", cli: "cli" };
+  var TAB_SOURCE_REQUIREMENT = { chats: "chat", cli: "cli", chronicle: "cli" };
   function setFilter(key, value) {
     if (!VALID_FILTER_KEYS.has(key)) return;
     if (key === "source" && !VALID_SOURCES2.has(value)) return;
@@ -678,7 +683,7 @@
       return;
     }
     const tab = params.get("tab");
-    if (tab && ["overview", "chats", "analysis", "cli", "reference"].includes(tab)) {
+    if (tab && ["overview", "chats", "analysis", "cli", "chronicle", "reference"].includes(tab)) {
       STATE.activeTab = tab;
     }
     const subtab = params.get("subtab");
@@ -913,8 +918,8 @@
   function monthlyTrendMetricConfig() {
     return {
       cost: {
-        label: "Cost",
-        short: "Cost",
+        label: "AI credits",
+        short: "Credits",
         color: "var(--teal)",
         value: (row) => {
           var _a;
@@ -1617,7 +1622,7 @@ ${body}` : header;
                 <th class="num">Total Output</th>
                 <th class="num">Total Cached</th>
                 <th class="num">Payload</th>
-                <th class="num">Cost</th>
+                <th class="num">AI credits</th>
               </tr></thead>
               <tbody>
                 ${rows.map((row) => `<tr>
@@ -1786,10 +1791,10 @@ ${body}` : header;
         <table>
           <thead><tr>
             <th>Model</th>
-            <th class="num">Input $/M</th>
-            <th class="num">Cached $/M</th>
-            <th class="num">Output $/M</th>
-            <th class="num">Est. Cost</th>
+            <th class="num">Input cr/M</th>
+            <th class="num">Cached cr/M</th>
+            <th class="num">Output cr/M</th>
+            <th class="num">Est. AI credits</th>
             <th class="num">vs actual</th>
           </tr></thead>
           <tbody>
@@ -2204,7 +2209,7 @@ Sessions: ${formatInteger(row.sessionCount || 0)} \xB7 Chats: ${formatInteger(ro
     if (!rows || !rows.length) {
       return '<div class="note">No usage data available for the selected filters.</div>';
     }
-    const metric = metricKey === "tokens" ? { label: "Total tokens", color: "var(--blue)", value: (block) => Number(block.input || 0) + Number(block.output || 0), format: formatInteger } : { label: "Cost", color: "var(--teal)", value: (block) => Number(block.cost || 0), format: formatCost };
+    const metric = metricKey === "tokens" ? { label: "Total tokens", color: "var(--blue)", value: (block) => Number(block.input || 0) + Number(block.output || 0), format: formatInteger } : { label: "AI credits", color: "var(--teal)", value: (block) => Number(block.cost || 0), format: formatCost };
     const blockKey = isBilledMode() ? "billed" : "attributed";
     const points = rows.map((row) => {
       const key = row.dayKey || row.monthKey || "";
@@ -2751,7 +2756,7 @@ CLI ${metric.label}: ${metric.format(point.cli)}`;
                   <th class="num">Uncached</th>
                   <th class="num">Cached</th>
                   <th class="num">Output</th>
-                  <th class="num">Cost</th>
+                  <th class="num">AI credits</th>
                   <th class="num">Cache hit</th>
                   ${cliHasData ? '<th class="num">CLI sessions</th><th class="num">CLI cost</th>' : ""}
                 </tr>
@@ -2862,7 +2867,7 @@ CLI ${metric.label}: ${metric.format(point.cli)}`;
           ${hasSavings ? `
           <div class="pill-list" style="margin-top:10px;">
             ${Number(savings.cost || 0) > 0 ? `<span class="pill">Est. saving ${escapeHtml(formatCost(savings.cost))}</span>` : ""}
-            ${Number(savings.cost || 0) > 0 ? `<span class="pill">${escapeHtml(formatCreditValue(savings.cost))} AI credits</span>` : ""}
+            ${Number(savings.cost || 0) > 0 ? `<span class="pill">${escapeHtml(formatCost(savings.cost))} saved</span>` : ""}
             ${Number(savings.premiumRequests || 0) > 0 ? `<span class="pill" title="Legacy meter: annual request-billed Pro/Pro+ only.">${escapeHtml(formatInteger(savings.premiumRequests))} premium req. (legacy)</span>` : ""}
           </div>` : `<div class="note small" style="margin-top:10px">Informational \u2014 no quantifiable saving.</div>`}
           <details style="margin-top:10px" id="insight-evidence-${index}">
@@ -2913,7 +2918,7 @@ CLI ${metric.label}: ${metric.format(point.cli)}`;
             </div>
             <div style="text-align:right">
               <div class="label" style="color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.04em">Estimated savings available</div>
-              <div style="font-size:1.3rem;font-weight:700" class="value cost">${escapeHtml(formatCost(totalCost))}${totalPremium ? ` <span class="note small" style="font-weight:400">= ${escapeHtml(formatCreditValue(totalCost))} AI credits</span>` : ""}</div>
+              <div style="font-size:1.3rem;font-weight:700" class="value cost">${escapeHtml(formatCost(totalCost))}</div>
             </div>
           </div>
           <div class="filter-bar" style="margin-top:14px;margin-bottom:0;align-items:center">
@@ -2925,7 +2930,7 @@ CLI ${metric.label}: ${metric.format(point.cli)}`;
             </label>
             <button type="button" class="copy-button" onclick="copyInsightsMarkdown(this)">\u{1F4CB} Copy summary as Markdown</button>
           </div>
-          <div class="note small" style="margin-top:12px">${formatInteger(visible.length)} of ${formatInteger(allInsights.length)} shown (source: ${escapeHtml(sourceLabel)}).${hiddenCrossSource ? ` ${formatInteger(hiddenCrossSource)} cross-source finding(s) are hidden because they compare Chat against CLI \u2014 switch the source filter to <strong>All</strong> to see them.` : ""} Dollar, AI-credit (1 credit = $0.01) and legacy premium-request figures throughout this panel are local estimates derived from parsed usage data \u2014 not official GitHub billing.</div>
+          <div class="note small" style="margin-top:12px">${formatInteger(visible.length)} of ${formatInteger(allInsights.length)} shown (source: ${escapeHtml(sourceLabel)}).${hiddenCrossSource ? ` ${formatInteger(hiddenCrossSource)} cross-source finding(s) are hidden because they compare Chat against CLI \u2014 switch the source filter to <strong>All</strong> to see them.` : ""} AI-credit (1 credit = $0.01 of model usage) and legacy premium-request figures throughout this panel are local estimates derived from parsed usage data \u2014 not official GitHub billing.</div>
           <div style="margin-top:14px">${cards}</div>
         </section>`;
   }
@@ -3123,6 +3128,190 @@ _Estimates are local approximations derived from parsed usage data, not official
       setInsightSavingsOnly,
       copyInsightsMarkdown
     });
+  }
+
+  // web/js/tab-chronicle.js
+  function chronicleData() {
+    return APP_DATA.chronicle || {};
+  }
+  function hasChronicleData() {
+    const data = chronicleData();
+    return Boolean(data.available) || data.reason === "query_failed";
+  }
+  function emptyPanel(title, note) {
+    return `<div class="panel"><div class="section-title">${escapeHtml(title)}</div><div class="note is-empty">${escapeHtml(note)}</div></div>`;
+  }
+  function formatIsoStamp(value) {
+    if (!value) return "never";
+    const parsed = new Date(String(value));
+    if (!Number.isFinite(parsed.getTime())) return String(value);
+    return parsed.toLocaleString();
+  }
+  function unavailableReason(data) {
+    if (data.reason === "no_db") {
+      return "No Copilot CLI session store was found, so there is nothing for the chronicle export to ship. Point --cli-db at ~/.copilot/session-store.db if it lives somewhere else.";
+    }
+    if (data.reason === "query_failed") {
+      return `Reading the session store failed, so export status and the credit split are unavailable: ${data.error || "unknown error"}`;
+    }
+    return "Chronicle data is unavailable for this build.";
+  }
+  function renderExportStatusPanel(data) {
+    var _a;
+    const streams = Array.isArray(data.streams) ? data.streams : [];
+    const totals = data.totals || {};
+    const pending = Number(totals.pending || 0);
+    const neverShipped = streams.filter((row) => !row.everShipped).length;
+    const statusNote = !streams.length ? "" : neverShipped === streams.length ? "The export has never run \u2014 every row in the store is still waiting." : pending > 0 ? `${formatInteger(pending)} row(s) recorded since the last export. Re-run with --chronicle to ship them.` : "Every stream is caught up with the local store.";
+    const statusClass = !streams.length ? "" : neverShipped === streams.length ? "is-critical" : pending > 0 ? "is-warn" : "is-ok";
+    const columns = [
+      { title: "Stream", render: (row) => `<code>${escapeHtml(row.stream)}</code>`, csv: (row) => row.stream },
+      { title: "Source table", render: (row) => `<code>${escapeHtml(row.table)}</code>`, csv: (row) => row.table },
+      { title: "Watermark", render: (row) => `<code>${escapeHtml(row.watermarkColumn)}</code> = ${row.lastId === null || row.lastId === void 0 ? "\u2014" : escapeHtml(String(row.lastId))}`, csv: (row) => {
+        var _a2;
+        return `${row.watermarkColumn}=${(_a2 = row.lastId) != null ? _a2 : ""}`;
+      } },
+      { title: "Rows in store", numeric: true, render: (row) => formatInteger(row.rowsInDb), csv: (row) => row.rowsInDb },
+      { title: "Shipped", numeric: true, render: (row) => formatInteger(row.shipped), csv: (row) => row.shipped },
+      {
+        title: "Pending",
+        numeric: true,
+        render: (row) => Number(row.pending || 0) > 0 ? `<span class="badge confidence-medium">${formatInteger(row.pending)}</span>` : formatInteger(row.pending),
+        csv: (row) => row.pending
+      },
+      { title: "Last shipped at", render: (row) => escapeHtml(formatIsoStamp(row.sentAt)), csv: (row) => row.sentAt || "" },
+      { title: "Endpoint", render: (row) => row.endpoint ? `<span class="note small">${escapeHtml(row.endpoint)}</span>` : "\u2014", csv: (row) => row.endpoint || "" }
+    ];
+    return `
+        <div class="panel">
+          <div class="section-title">Chronicle export status</div>
+          <div class="section-subtitle small">Per-stream watermarks from <code>${escapeHtml(data.statePath || "chronicle_state.json")}</code>, compared against the live store at <code>${escapeHtml(data.dbPath || "\u2014")}</code>. Counted locally: the endpoint column says where rows are sent, not that OpenObserve accepted them.</div>
+          <div class="summary-grid" style="margin:10px 0">
+            <div class="summary-card"><div class="label">Rows shipped</div><div class="value">${formatInteger(totals.shipped)}</div><div class="note small">of ${formatInteger(totals.rowsInDb)} in the store</div></div>
+            <div class="summary-card"><div class="label">Rows pending</div><div class="value ${statusClass}">${formatInteger(pending)}</div><div class="note small">${escapeHtml(neverShipped ? `${formatInteger(neverShipped)} stream(s) never shipped` : "all streams shipped at least once")}</div></div>
+            <div class="summary-card"><div class="label">Last export run</div><div class="value">${escapeHtml(formatIsoStamp(totals.lastRunAt))}</div><div class="note small">most recent stream watermark</div></div>
+            <div class="summary-card"><div class="label">Streams</div><div class="value">${formatInteger(streams.length)}</div><div class="note small">plus <code>${escapeHtml(((_a = data.advice) == null ? void 0 : _a.stream) || "")}</code> for advice</div></div>
+          </div>
+          ${statusNote ? `<div class="note small">${escapeHtml(statusNote)}</div>` : ""}
+          ${streams.length ? renderTable(columns, streams, { exportId: "chronicleStreams", exportFilename: "chronicle-streams.csv" }) : '<div class="note is-empty">No chronicle streams are configured.</div>'}
+        </div>`;
+  }
+  function renderDriftPanel(drift) {
+    const ok = drift.withinTolerance !== false;
+    const difference = Number(drift.difference || 0);
+    const unpricedCalls = Number(drift.callsUnpriced || 0);
+    const headline = ok ? "\u2705 Re-priced credits match GitHub\u2019s billed credits exactly" : "\u26A0\uFE0F Re-priced credits disagree with GitHub\u2019s billed credits";
+    const detail = ok ? `Both sides sum to ${formatCreditUnits(drift.creditsTotal)} across ${formatInteger(drift.callsPriced)} priced call(s), so the per-token-type split below accounts for every credit charged on those calls.` : `The split adds up to ${formatCreditUnits(drift.creditsTotal)} but GitHub billed ${formatCreditUnits(drift.aiCredits)} for the same calls \u2014 a gap of ${formatCreditUnits(difference)}, against a tolerance of ${formatCreditUnits(drift.tolerance)}. The usual cause is a new token type in the rate table that cost_split() is not summing, which makes every credit figure derived from the split an understatement. Treat the billed figure as authoritative until the split is fixed.`;
+    const coverageNote = unpricedCalls ? `${formatInteger(unpricedCalls)} further call(s) recorded no per-token rate table, so their ${formatCreditUnits(drift.creditsUnpriced)} is billed but cannot be split. They are excluded from both figures above and from the breakdown below; ${formatCreditUnits(drift.billedTotal)} was billed in total.` : "";
+    return `
+        <div class="panel">
+          <div class="section-title">Cross-foot: split vs billed</div>
+          <div class="section-subtitle small">Two independent derivations of the same spend: <code>copilot_chronicle_costs</code> re-prices each call from its own rate table, <code>copilot_chronicle_usage</code> reports the charge GitHub recorded. They must agree.</div>
+          <div class="insight-card ${ok ? "" : "state-critical"}" style="margin-top:10px">
+            <div style="font-weight:700">${headline}</div>
+            <div class="note small" style="margin-top:6px">${escapeHtml(detail)}</div>
+          </div>
+          <div class="summary-grid" style="margin-top:12px">
+            <div class="summary-card" title="Sum of credits_total across copilot_chronicle_costs \u2014 each call re-priced from the rates GitHub applied to it."><div class="label">Re-priced (costs stream)</div><div class="value cost">${formatCreditUnits(drift.creditsTotal)}</div><div class="note small">${formatInteger(drift.callsPriced)} call(s) priced</div></div>
+            <div class="summary-card" title="Sum of ai_credits across copilot_chronicle_usage \u2014 the charge GitHub recorded, from total_nano_aiu \u2014 for those same calls."><div class="label">Billed (usage stream)</div><div class="value cost">${formatCreditUnits(drift.aiCredits)}</div><div class="note small">${formatInteger(drift.callsBilled)} call(s) billed</div></div>
+            <div class="summary-card"><div class="label">Difference</div><div class="value ${ok ? "is-ok" : "is-critical"}">${formatCreditUnits(difference)}</div><div class="note small">tolerance ${formatCreditUnits(drift.tolerance)}</div></div>
+          </div>
+          ${coverageNote ? `<div class="note small" style="margin-top:10px">${escapeHtml(coverageNote)}</div>` : ""}
+        </div>`;
+  }
+  function renderSplitTotalsPanel(totals) {
+    const ifNoCache = Number(totals.creditsIfNoCache || 0);
+    const saved = Number(totals.creditsCacheSaved || 0);
+    const savedPct = Number(totals.cacheSavedPercent || 0);
+    const bar = (label, value, color) => {
+      const total = Number(totals.creditsTotal || 0);
+      const pct = total ? Number(value || 0) / total * 100 : 0;
+      return `
+          <div style="margin-bottom:8px">
+            <div class="note small" style="display:flex;justify-content:space-between">
+              <span>${escapeHtml(label)}</span>
+              <span><strong>${formatCreditUnits(value)}</strong> \xB7 ${formatPercent(pct)}</span>
+            </div>
+            <div class="gauge"><div class="gauge-fill" style="width:${Math.max(0, Math.min(100, pct)).toFixed(1)}%;background:${color}"></div></div>
+          </div>`;
+    };
+    return `
+        <div class="panel">
+          <div class="section-title">Where the credits went</div>
+          <div class="section-subtitle small">Each call split across the four token types using the per-token rates GitHub applied to it (<code>token_details_json</code>), so promotions, the auto-model-selection discount and long-context tiers are already reflected. Exact, not estimated.</div>
+          <div class="summary-grid" style="margin:10px 0">
+            <div class="summary-card"><div class="label">Total charged</div><div class="value cost">${formatCreditUnits(totals.creditsTotal)}</div><div class="note small">${formatInteger(totals.callsPriced)} of ${formatInteger(totals.calls)} call(s) priced</div></div>
+            <div class="summary-card" title="What the same tokens would have cost with every cached read billed at the full uncached input rate and no cache writes."><div class="label">Without the prompt cache</div><div class="value">${formatCreditUnits(ifNoCache)}</div><div class="note small">hypothetical</div></div>
+            <div class="summary-card"><div class="label">Saved by the cache</div><div class="value is-ok">${formatCreditUnits(saved)}</div><div class="note small">${formatPercent(savedPct)} of the uncached price</div></div>
+          </div>
+          <!-- Same colour per token type as the rest of the dashboard uses for
+               .value.uncached / .cached / .output, so the bars read as the
+               token types the summary cards already name. -->
+          ${bar("Uncached input", totals.creditsInput, "var(--yellow)")}
+          ${bar("Cached reads", totals.creditsCacheRead, "var(--green)")}
+          ${bar("Cache writes", totals.creditsCacheWrite, "var(--purple)")}
+          ${bar("Output", totals.creditsOutput, "var(--orange)")}
+          <div class="note small" style="margin-top:10px">Cache writes are charged at their own (higher) rate and are the price of the saving above \u2014 a cache that is written but never read costs more than no cache at all.</div>
+        </div>`;
+  }
+  function splitColumns(keyTitle, keyRender, keyCsv) {
+    return [
+      { title: keyTitle, render: keyRender, csv: keyCsv },
+      {
+        // Priced calls, with the unpriced remainder named rather than dropped:
+        // a bucket reading "0 credits" needs to say it was never priced, or it
+        // looks like a model that ran for free.
+        title: "Calls priced",
+        numeric: true,
+        render: (row) => Number(row.calls || 0) === Number(row.callsPriced || 0) ? formatInteger(row.callsPriced) : `${formatInteger(row.callsPriced)} <span class="note small">of ${formatInteger(row.calls)}</span>`,
+        csv: (row) => row.callsPriced
+      },
+      { title: "Uncached input", numeric: true, render: (row) => formatCreditUnits(row.creditsInput), csv: (row) => row.creditsInput },
+      { title: "Cached reads", numeric: true, render: (row) => formatCreditUnits(row.creditsCacheRead), csv: (row) => row.creditsCacheRead },
+      { title: "Cache writes", numeric: true, render: (row) => formatCreditUnits(row.creditsCacheWrite), csv: (row) => row.creditsCacheWrite },
+      { title: "Output", numeric: true, render: (row) => formatCreditUnits(row.creditsOutput), csv: (row) => row.creditsOutput },
+      { title: "Total", numeric: true, render: (row) => `<strong>${formatCreditUnits(row.creditsTotal)}</strong>`, csv: (row) => row.creditsTotal },
+      { title: "Cache saved", numeric: true, render: (row) => `${formatCreditUnits(row.creditsCacheSaved)} <span class="note small">(${formatPercent(row.cacheSavedPercent)})</span>`, csv: (row) => row.creditsCacheSaved }
+    ];
+  }
+  function renderByModelPanel(rows) {
+    if (!rows.length) return "";
+    return `
+        <div class="panel">
+          <div class="section-title">Credit split by model</div>
+          <div class="section-subtitle small">Sorted by total credits charged. A model with a low cache-saved percentage is one whose context is being rebuilt rather than reused.</div>
+          <div class="table-scroll">
+            ${renderTable(splitColumns("Model", (row) => escapeHtml(String(row.model || "unknown")), (row) => row.model), rows, { exportId: "chronicleByModel", exportFilename: "chronicle-credits-by-model.csv" })}
+          </div>
+        </div>`;
+  }
+  function renderByDayPanel(rows) {
+    if (!rows.length) return "";
+    const ordered = [...rows].reverse();
+    return `
+        <div class="panel">
+          <div class="section-title">Credit split by day</div>
+          <div class="section-subtitle small">Local calendar days, newest first \u2014 grouped the way every other per-day figure on this dashboard is, so the two can be compared.</div>
+          <div class="table-scroll" style="max-height:520px;overflow:auto">
+            ${renderTable(splitColumns("Day", (row) => escapeHtml(String(row.day || "")), (row) => row.day), ordered, { exportId: "chronicleByDay", exportFilename: "chronicle-credits-by-day.csv" })}
+          </div>
+        </div>`;
+  }
+  function renderChronicleTab() {
+    const data = chronicleData();
+    if (!data.available) {
+      return emptyPanel("Chronicle", unavailableReason(data));
+    }
+    const costs = data.costs || {};
+    const totals = costs.totals || {};
+    const drift = data.drift || {};
+    const byModel = Array.isArray(costs.byModel) ? costs.byModel : [];
+    const byDay = Array.isArray(costs.byDay) ? costs.byDay : [];
+    const hasSplit = Number(totals.callsPriced || 0) > 0;
+    return `
+        ${renderExportStatusPanel(data)}
+        ${hasSplit ? renderDriftPanel(drift) : ""}
+        ${hasSplit ? `${renderSplitTotalsPanel(totals)}${renderByModelPanel(byModel)}${renderByDayPanel(byDay)}` : emptyPanel("Where the credits went", "No call in the store carries a per-token rate table (token_details_json), which older Copilot CLI builds did not record. The credit split needs those rates; the CLI tab still shows billed totals.")}`;
   }
 
   // web/js/tab-cli.js
@@ -3505,7 +3694,7 @@ _Estimates are local approximations derived from parsed usage data, not official
             <thead>
               <tr>
                 <th>Repository</th><th>Branch</th><th class="num">Sessions</th>
-                <th class="num">Input</th><th class="num">Output</th><th class="num">Cost</th><th class="num">Premium reqs (legacy est.)</th>
+                <th class="num">Input</th><th class="num">Output</th><th class="num">AI credits</th><th class="num">Premium reqs (legacy est.)</th>
               </tr>
             </thead>
             <tbody>
@@ -3713,8 +3902,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
             <div class="summary-card"><div class="label">Cached-read input</div><div class="value cached">${formatInteger(summary.totalCached)}</div></div>
             <div class="summary-card" title="Prompt tokens written into the provider cache. Billed at their own, higher rate (1.25x input for Anthropic models) \u2014 not at the input rate."><div class="label">Cache-write input</div><div class="value">${formatInteger(summary.totalCacheWrite)}</div></div>
             <div class="summary-card"><div class="label">Output tokens</div><div class="value output">${formatInteger(summary.totalOutput)}</div></div>
-            <div class="summary-card"><div class="label">${costLabel(summary)}</div><div class="value cost">${formatCost(summary.totalCost)}</div><div class="note small">${costProvenanceBadge(summary)}</div></div>
-            <div class="summary-card" title="GitHub meters paid plans in AI credits: 1 credit = $0.01 of model usage."><div class="label">AI credits</div><div class="value cost">${formatCreditValue(summary.totalCost)}</div></div>
+            <div class="summary-card" title="GitHub meters paid plans in AI credits: 1 credit = $0.01 of model usage."><div class="label">${costLabel(summary)}</div><div class="value cost">${formatCost(summary.totalCost)}</div><div class="note small">${costProvenanceBadge(summary)}</div></div>
             <div class="summary-card"><div class="label">Files touched</div><div class="value">${formatInteger(summary.fileCount)}</div></div>
             <div class="summary-card" title="Legacy per-prompt meter. Credit-billed plans are metered on cost instead \u2014 see the AI credit budget on Overview."><div class="label">Premium requests</div><div class="value">${formatInteger(totalPremiumRequests)}</div><div class="note small">legacy est.</div></div>
             ${cli.otelAvailable ? `<div class="summary-card"><div class="label">Tool calls</div><div class="value">${formatInteger(summary.toolCallCount)}</div><div class="note small">from OTel</div></div>` : ""}
@@ -3733,8 +3921,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
       { title: "Cached-read input", numeric: true, render: (row) => `<span class="value cached">${formatInteger(row.cached)}</span>` },
       { title: "Cache-write input", numeric: true, render: (row) => `<span class="value">${formatInteger(row.cacheWrite)}</span>` },
       { title: "Output", numeric: true, render: (row) => `<span class="value output">${formatInteger(row.output)}</span>` },
-      { title: "Cost", numeric: true, render: (row) => `<div><span class="value cost">${formatCost(row.cost)}</span><div class="note small">${costProvenanceBadge(row)}</div></div>` },
-      { title: "Credits", numeric: true, render: (row) => `<span class="value cost">${formatCreditValue(row.cost)}</span>` },
+      { title: "AI credits", numeric: true, render: (row) => `<div><span class="value cost">${formatCost(row.cost)}</span><div class="note small">${costProvenanceBadge(row)}</div></div>` },
       { title: "Premium reqs (legacy est.)", numeric: true, render: (row) => formatInteger(row.premiumRequests) }
     ], byModelRows);
     const cliTools = cli.tools || [];
@@ -3872,8 +4059,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
           <div class="meta-card"><div class="label">Cached-read</div><div class="value cached">${formatInteger(session.cached)}</div></div>
           <div class="meta-card" title="Prompt tokens written into the provider cache, billed at their own higher rate."><div class="label">Cache-write</div><div class="value">${formatInteger(session.cacheWrite)}</div></div>
           <div class="meta-card"><div class="label">Total output</div><div class="value output">${formatInteger(session.output)}</div></div>
-          <div class="meta-card"><div class="label">${costLabel(session)}</div><div class="value cost">${formatCost(session.cost)}</div><div class="note small">${costProvenanceBadge(session)}</div></div>
-          <div class="meta-card" title="1 AI credit = $0.01 of model usage."><div class="label">AI credits</div><div class="value cost">${formatCreditValue(session.cost)}</div></div>
+          <div class="meta-card" title="1 AI credit = $0.01 of model usage."><div class="label">${costLabel(session)}</div><div class="value cost">${formatCost(session.cost)}</div><div class="note small">${costProvenanceBadge(session)}</div></div>
           <div class="meta-card"><div class="label">Cache hit rate</div><div class="value cached">${formatPercent(session.input ? session.cached / session.input * 100 : 0)}</div></div>
           <div class="meta-card"><div class="label">Files touched</div><div class="value">${formatInteger((session.files || []).length)}</div></div>
           <div class="meta-card"><div class="label">Created</div><div class="value">${escapeHtml(formatTimestamp(session.createdAt))}</div></div>
@@ -3887,7 +4073,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
         <div class="event-section" style="margin-bottom:14px">
           <h4>Per-model breakdown</h4>
           <table>
-            <thead><tr><th>Model</th><th class="num">Calls</th><th class="num">Input</th><th class="num">Cached-read</th><th class="num">Cache-write</th><th class="num">Output</th><th class="num">Cost</th><th class="num">Credits</th></tr></thead>
+            <thead><tr><th>Model</th><th class="num">Calls</th><th class="num">Input</th><th class="num">Cached-read</th><th class="num">Cache-write</th><th class="num">Output</th><th class="num">AI credits</th></tr></thead>
             <tbody>
               ${rows.map((row) => `<tr>
                 <td>${escapeHtml(row.model)}</td>
@@ -3897,7 +4083,6 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
                 <td class="num"><span class="value">${formatInteger(row.cacheWrite)}</span></td>
                 <td class="num"><span class="value output">${formatInteger(row.output)}</span></td>
                 <td class="num"><span class="value cost">${formatCost(row.cost)}</span> ${costProvenanceBadge(row)}</td>
-                <td class="num"><span class="value cost">${formatCreditValue(row.cost)}</span></td>
               </tr>`).join("")}
             </tbody>
           </table>
@@ -4034,16 +4219,16 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
     const minCost = ((_a = rows[0]) == null ? void 0 : _a.cost) || 0;
     document.getElementById("modelCompareModalContent").innerHTML = `
         <div class="note small" style="margin-bottom:12px">Estimated cost if this session's total token usage (<strong>${formatInteger(inputTokens)}</strong> input, of which <strong>${formatInteger(cachedTokens)}</strong> cached reads and <strong>${formatInteger(cacheWriteTokens)}</strong> cache writes, plus <strong>${formatInteger(outputTokens)}</strong> output) was processed by each model. Assumes the same cache hit pattern.</div>
-        <div class="note small" style="margin-bottom:12px">Every figure in the <strong>Est. Cost</strong> column is priced from the published rate table, so it carries that table's caveats \u2014 notably that the 10% auto-model-selection discount is not modelled. The <strong>vs actual</strong> column compares against ${escapeHtml(actualProvenance.exact ? "this session's billed cost, which is exact" : "this session's estimated cost, which is itself approximate")}, so read small differences with that in mind.</div>
+        <div class="note small" style="margin-bottom:12px">Every figure in the <strong>Est. AI credits</strong> column is priced from the published rate table, so it carries that table's caveats \u2014 notably that the 10% auto-model-selection discount is not modelled. The <strong>vs actual</strong> column compares against ${escapeHtml(actualProvenance.exact ? "this session's billed credit charge, which is exact" : "this session's estimated credit charge, which is itself approximate")}, so read small differences with that in mind.</div>
         <div style="overflow-x:auto">
         <table>
           <thead><tr>
             <th>Model</th>
-            <th class="num">Input $/M</th>
-            <th class="num">Cached $/M</th>
-            <th class="num" title="Writing a prompt into the provider cache. Models that do not price cache writes show $0.">Cache-write $/M</th>
-            <th class="num">Output $/M</th>
-            <th class="num">Est. Cost</th>
+            <th class="num">Input cr/M</th>
+            <th class="num">Cached cr/M</th>
+            <th class="num" title="Writing a prompt into the provider cache. Models that do not price cache writes show 0.00 cr.">Cache-write cr/M</th>
+            <th class="num">Output cr/M</th>
+            <th class="num">Est. AI credits</th>
             <th class="num">vs actual</th>
           </tr></thead>
           <tbody>
@@ -4160,7 +4345,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
           <div class="note small">Across full history, all sources \u2014 not narrowed by the period/source filters above (these lists have no per-day breakdown server-side).</div>
           <div class="table-scroll">
             <table class="rollup-table table-collapse">
-              <thead><tr><th>${escapeHtml(keyLabel)}</th><th class="num">Cost</th><th class="num">Tokens</th><th class="num">Sessions</th></tr></thead>
+              <thead><tr><th>${escapeHtml(keyLabel)}</th><th class="num">AI credits</th><th class="num">Tokens</th><th class="num">Sessions</th></tr></thead>
               <tbody>${body}</tbody>
             </table>
           </div>
@@ -4190,7 +4375,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
             <span class="badge">${escapeHtml(insight.severity || "info")}</span>
           </div>
           <div class="note small">${escapeHtml(insight.detail || "")}</div>
-          ${insight.estimatedSavings ? `<div class="note small">Est. savings: ${formatCost(insight.estimatedSavings.cost || 0)} \xB7 ${formatCreditValue(insight.estimatedSavings.cost || 0)} AI credits</div>` : ""}
+          ${insight.estimatedSavings ? `<div class="note small">Est. savings: ${formatCost(insight.estimatedSavings.cost || 0)}</div>` : ""}
         </div>`).join("");
     return `
         <div class="panel">
@@ -4257,7 +4442,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
     return `
         <section class="panel">
           <h2 class="section-title">Model prices</h2>
-          <div class="section-subtitle">Prices per 1M tokens, quoted from GitHub's official <a href="https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing" target="_blank" rel="noopener">models and pricing</a> page and configurable in <code>model_pricing.py</code>. Sorted cheapest first.</div>
+          <div class="section-subtitle">Prices per 1M tokens in AI credits (1 credit = $0.01 of model usage), converted from the dollar rates on GitHub's official <a href="https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing" target="_blank" rel="noopener">models and pricing</a> page and configurable in <code>model_pricing.py</code>. Sorted cheapest first.</div>
           <div class="note small" style="margin-bottom:10px">
             <strong>This table is a fallback, not the primary cost source.</strong> Copilot CLI usage is priced from what GitHub actually charged each call (recorded in <code>~/.copilot/session-store.db</code>), so those figures are exact and already include promotional pricing, long-context tiers and the 10% auto-model-selection discount. This table prices the VS Code chat half of the data, where no billing figure is exposed, and backstops CLI rows recorded by an older CLI build. Two caveats apply to those fallback estimates: the 10% auto-model-selection discount is not modelled (nothing in either data source flags a call as auto-routed), and chat telemetry exposes no cache-write counter, so cache-heavy chat sessions read as a lower bound.
           </div>
@@ -4266,10 +4451,10 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
               <thead>
                 <tr>
                   <th>Model</th>
-                  <th>Input $/M</th>
-                  <th>Cached-read $/M</th>
-                  <th title="Writing a prompt into the provider cache. Anthropic charges 1.25x input; models whose pricing row prints &quot;Not applicable&quot; are billed nothing, shown here as $0.">Cache-write $/M</th>
-                  <th>Output $/M</th>
+                  <th>Input cr/M</th>
+                  <th>Cached-read cr/M</th>
+                  <th title="Writing a prompt into the provider cache. Anthropic charges 1.25x input; models whose pricing row prints &quot;Not applicable&quot; are billed nothing, shown here as 0.00 cr.">Cache-write cr/M</th>
+                  <th>Output cr/M</th>
                   <th title="Above the listed prompt size, the entire call bills at the long-context rates instead of the default ones.">Long-context tier</th>
                 </tr>
               </thead>
@@ -4462,8 +4647,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
     var _a, _b, _c;
     const totals = unifiedFilteredTotals();
     const block = pickTokenBlock(totals.attributed, totals.billed);
-    const costLabel2 = isBilledMode() ? "Billed API cost" : "Attributed est. cost";
-    const creditsLabel = isBilledMode() ? "Billed AI credits" : "Attributed AI credits";
+    const costLabel2 = isBilledMode() ? "Billed AI credits" : "Attributed est. AI credits";
     const budget = ((_a = APP_DATA.premium) == null ? void 0 : _a.budget) || {};
     const hasAllowance = budget.allowance !== null && budget.allowance !== void 0;
     const rawPct = hasAllowance ? Number(budget.percentUsed || 0) : 0;
@@ -4485,10 +4669,9 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
             </div>
           </div>
           <div class="summary-group">
-            <div class="summary-group-label">Cost &amp; AI credits</div>
+            <div class="summary-group-label">AI credits</div>
             <div class="summary-grid">
-              <div class="summary-card"><div class="label">${escapeHtml(costLabel2)}</div><div class="value cost">${formatCost(block.cost)}</div></div>
-              <div class="summary-card" title="1 AI credit = $0.01 of model usage \u2014 the unit GitHub meters paid plans in."><div class="label">${escapeHtml(creditsLabel)}</div><div class="value credits">${formatCreditValue(block.cost)}</div></div>
+              <div class="summary-card" title="1 AI credit = $0.01 of model usage \u2014 the unit GitHub meters paid plans in."><div class="label">${escapeHtml(costLabel2)}</div><div class="value cost">${formatCost(block.cost)}</div></div>
               <div class="summary-card"><div class="label">Credit allowance used</div><div class="value${quotaValueClass}">${escapeHtml(quotaValue)}</div><div class="note small">${escapeHtml(quotaNote)}</div></div>
               <div class="summary-card" title="Legacy premium-request estimate (one per user prompt x model multiplier). Applies only to annual Pro/Pro+ plans still billed in requests."><div class="label">Premium requests (legacy)</div><div class="value">${formatInteger(totals.premiumRequests)}</div></div>
             </div>
@@ -4553,6 +4736,10 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
             ${filters.source !== "cli" ? `<button class="tab-button ${STATE.activeTab === "chats" ? "active" : ""}" onclick="switchTab('chats')">Chats</button>` : ""}
             <button class="tab-button ${STATE.activeTab === "analysis" ? "active" : ""}" onclick="switchTab('analysis')">Analysis</button>
             ${filters.source !== "chat" ? `<button class="tab-button ${STATE.activeTab === "cli" ? "active" : ""}" onclick="switchTab('cli')">CLI</button>` : ""}
+            <!-- Chronicle is derived from the CLI session store, so it follows
+                 the CLI tab's source gate; it is additionally hidden when there
+                 is no store to report on (see hasChronicleData). -->
+            ${filters.source !== "chat" && hasChronicleData() ? `<button class="tab-button ${STATE.activeTab === "chronicle" ? "active" : ""}" onclick="switchTab('chronicle')">Chronicle</button>` : ""}
             <button class="tab-button ${STATE.activeTab === "reference" ? "active" : ""}" onclick="switchTab('reference')">Info</button>
           </div>
           ${renderSummaryCards()}
@@ -4564,6 +4751,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
     ["regionChats", "chats", renderChatsTab],
     ["regionAnalysis", "analysis", renderAnalysisTab],
     ["regionCli", "cli", renderCliTab],
+    ["regionChronicle", "chronicle", renderChronicleTab],
     ["regionReference", "reference", renderReferenceTab]
   ];
   var _regionHtmlCache = /* @__PURE__ */ Object.create(null);
@@ -4592,6 +4780,7 @@ python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
   }
   function renderApp() {
     const app = document.getElementById("app");
+    if (STATE.activeTab === "chronicle" && !hasChronicleData()) STATE.activeTab = "overview";
     const pages = pagedSessions();
     if (STATE.page > pages.pageCount) STATE.page = pages.pageCount;
     ensureAppSkeleton(app);

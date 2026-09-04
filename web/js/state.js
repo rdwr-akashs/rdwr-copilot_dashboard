@@ -11,7 +11,7 @@ import { renderApp } from './app.js';
       theme: 'copilot-dashboard-theme-v1',
     };
 
-    const VALID_TABS = new Set(['overview', 'chats', 'analysis', 'cli', 'reference']);
+    const VALID_TABS = new Set(['overview', 'chats', 'analysis', 'cli', 'chronicle', 'reference']);
 
     function loadLastTab() {
       try {

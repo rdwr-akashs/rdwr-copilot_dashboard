@@ -1,11 +1,12 @@
 import { exportToJson, switchTab, switchTokenMode, switchUsagePeriod } from './actions.js';
 import { activePeriodLabel, activeSummary, pagedSessions, unifiedFilteredTotals } from './aggregate.js';
-import { cacheHitRateForBlock, escapeHtml, formatCost, formatCreditValue, formatInteger, formatPercent, pickTokenBlock, summaryDisplayTotals } from './format.js';
+import { cacheHitRateForBlock, escapeHtml, formatCost, formatInteger, formatPercent, pickTokenBlock, summaryDisplayTotals } from './format.js';
 import { dismissDiagnosticsBanner, renderDiagnosticsBanner } from './diagnostics.js';
 import { applyCustomDateInputs, currentFilters, decodeHashIntoState, encodeHashFromState, setFilter } from './filters.js';
 import { APP_DATA, STATE, applyTheme, captureInputFocusState, isBilledMode, normalizeTokenMode, restoreInputFocusState, tokenModeLabel } from './state.js';
 import { renderAnalysisTab } from './tab-analysis.js';
 import { renderChatsTab } from './tab-chats.js';
+import { hasChronicleData, renderChronicleTab } from './tab-chronicle.js';
 import { renderCliTab } from './tab-cli.js';
 import { openInsightsFromOverview, renderOverviewTab } from './tab-overview.js';
 import { renderReferenceTab } from './tab-reference.js';
@@ -27,8 +28,7 @@ import { changeCliPage, deleteCliSessionPrompt, exportCliSessionToJson, openCliF
     export function renderSummaryCards() {
       const totals = unifiedFilteredTotals();
       const block = pickTokenBlock(totals.attributed, totals.billed);
-      const costLabel = isBilledMode() ? 'Billed API cost' : 'Attributed est. cost';
-      const creditsLabel = isBilledMode() ? 'Billed AI credits' : 'Attributed AI credits';
+      const costLabel = isBilledMode() ? 'Billed AI credits' : 'Attributed est. AI credits';
       const budget = APP_DATA.premium?.budget || {};
       const hasAllowance = budget.allowance !== null && budget.allowance !== undefined;
       // Reported unclamped: an earlier version capped this at 100%, so a
@@ -62,10 +62,9 @@ import { changeCliPage, deleteCliSessionPrompt, exportCliSessionToJson, openCliF
             </div>
           </div>
           <div class="summary-group">
-            <div class="summary-group-label">Cost &amp; AI credits</div>
+            <div class="summary-group-label">AI credits</div>
             <div class="summary-grid">
-              <div class="summary-card"><div class="label">${escapeHtml(costLabel)}</div><div class="value cost">${formatCost(block.cost)}</div></div>
-              <div class="summary-card" title="1 AI credit = $0.01 of model usage — the unit GitHub meters paid plans in."><div class="label">${escapeHtml(creditsLabel)}</div><div class="value credits">${formatCreditValue(block.cost)}</div></div>
+              <div class="summary-card" title="1 AI credit = $0.01 of model usage — the unit GitHub meters paid plans in."><div class="label">${escapeHtml(costLabel)}</div><div class="value cost">${formatCost(block.cost)}</div></div>
               <div class="summary-card"><div class="label">Credit allowance used</div><div class="value${quotaValueClass}">${escapeHtml(quotaValue)}</div><div class="note small">${escapeHtml(quotaNote)}</div></div>
               <div class="summary-card" title="Legacy premium-request estimate (one per user prompt x model multiplier). Applies only to annual Pro/Pro+ plans still billed in requests."><div class="label">Premium requests (legacy)</div><div class="value">${formatInteger(totals.premiumRequests)}</div></div>
             </div>
@@ -144,6 +143,10 @@ import { changeCliPage, deleteCliSessionPrompt, exportCliSessionToJson, openCliF
             ${filters.source !== 'cli' ? `<button class="tab-button ${STATE.activeTab === 'chats' ? 'active' : ''}" onclick="switchTab('chats')">Chats</button>` : ''}
             <button class="tab-button ${STATE.activeTab === 'analysis' ? 'active' : ''}" onclick="switchTab('analysis')">Analysis</button>
             ${filters.source !== 'chat' ? `<button class="tab-button ${STATE.activeTab === 'cli' ? 'active' : ''}" onclick="switchTab('cli')">CLI</button>` : ''}
+            <!-- Chronicle is derived from the CLI session store, so it follows
+                 the CLI tab's source gate; it is additionally hidden when there
+                 is no store to report on (see hasChronicleData). -->
+            ${filters.source !== 'chat' && hasChronicleData() ? `<button class="tab-button ${STATE.activeTab === 'chronicle' ? 'active' : ''}" onclick="switchTab('chronicle')">Chronicle</button>` : ''}
             <button class="tab-button ${STATE.activeTab === 'reference' ? 'active' : ''}" onclick="switchTab('reference')">Info</button>
           </div>
           ${renderSummaryCards()}
@@ -171,6 +174,7 @@ import { changeCliPage, deleteCliSessionPrompt, exportCliSessionToJson, openCliF
       ['regionChats', 'chats', renderChatsTab],
       ['regionAnalysis', 'analysis', renderAnalysisTab],
       ['regionCli', 'cli', renderCliTab],
+      ['regionChronicle', 'chronicle', renderChronicleTab],
       ['regionReference', 'reference', renderReferenceTab],
     ];
 
@@ -210,6 +214,11 @@ import { changeCliPage, deleteCliSessionPrompt, exportCliSessionToJson, openCliF
 
     export function renderApp() {
       const app = document.getElementById('app');
+      // A remembered (localStorage) or deep-linked Chronicle tab must not
+      // survive into a build with no chronicle data: the tab button is hidden
+      // in that case, so leaving it active would strand the user on a panel
+      // they cannot navigate away from by clicking its own tab.
+      if (STATE.activeTab === 'chronicle' && !hasChronicleData()) STATE.activeTab = 'overview';
       const pages = pagedSessions();
       if (STATE.page > pages.pageCount) STATE.page = pages.pageCount;
       ensureAppSkeleton(app);

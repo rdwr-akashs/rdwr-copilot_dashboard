@@ -241,7 +241,7 @@ import { renderContextBreakdown, renderEvent, renderSessionMeta, renderSessionTo
                 <th class="num">Total Output</th>
                 <th class="num">Total Cached</th>
                 <th class="num">Payload</th>
-                <th class="num">Cost</th>
+                <th class="num">AI credits</th>
               </tr></thead>
               <tbody>
                 ${rows.map((row) => `<tr>
@@ -437,10 +437,10 @@ import { renderContextBreakdown, renderEvent, renderSessionMeta, renderSessionTo
         <table>
           <thead><tr>
             <th>Model</th>
-            <th class="num">Input $/M</th>
-            <th class="num">Cached $/M</th>
-            <th class="num">Output $/M</th>
-            <th class="num">Est. Cost</th>
+            <th class="num">Input cr/M</th>
+            <th class="num">Cached cr/M</th>
+            <th class="num">Output cr/M</th>
+            <th class="num">Est. AI credits</th>
             <th class="num">vs actual</th>
           </tr></thead>
           <tbody>

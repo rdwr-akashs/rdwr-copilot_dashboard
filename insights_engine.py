@@ -183,6 +183,23 @@ def _round2(value: float) -> float:
     return round(float(value or 0.0), 4)
 
 
+def _fmt_credits(cost_usd: float) -> str:
+    """A USD cost rendered in AI credits, the unit this dashboard reports in.
+
+    Mirrors format.js::formatCreditValue's precision rule so an insight's prose
+    and the figures in the panel around it read the same way: grouped whole
+    credits once the decimals stop carrying information, tenths in the middle
+    band, hundredths for the small fractions where they are the point.
+    """
+    credits = float(cost_usd or 0.0) / CREDIT_USD
+    magnitude = abs(credits)
+    if magnitude >= 1000:
+        return f"{credits:,.0f} cr"
+    if magnitude >= 10:
+        return f"{credits:.1f} cr"
+    return f"{credits:.2f} cr"
+
+
 def _make_insight(
     insight_id: str,
     severity: str,
@@ -274,7 +291,7 @@ def _rule_low_cache_hit_rate(sessions: list[dict[str, Any]], cfg: dict[str, Any]
             detail=(
                 f"Session {session.get('id')} has a {rate:.1f}% cache-hit rate on its billed input, "
                 f"{gap_pp:.1f} percentage points below this period's {avg_rate:.1f}% average across comparable "
-                f"sessions. That gap is estimated to cost about ${gap_cost:.2f} more than a session hitting the "
+                f"sessions. That gap is estimated to cost about {_fmt_credits(gap_cost)} more than a session hitting the "
                 f"average rate would."
             ),
             source="chat",
@@ -475,7 +492,7 @@ def _rule_context_reset_churn(sessions: list[dict[str, Any]], cfg: dict[str, Any
             detail=(
                 f"Session {session.get('id')} had {resets} context reset(s)/model switch(es) across "
                 f"{session.get('chat_count')} calls ({rate * 100.0:.0f}% of calls). Each reset re-sends the full "
-                f"prompt at full price; the resulting overhead is estimated at ${overhead_cost:.2f}."
+                f"prompt at full price; the resulting overhead is estimated at {_fmt_credits(overhead_cost)}."
             ),
             source="chat",
             evidence=[{
@@ -604,7 +621,7 @@ def _rule_abandoned_sessions(sessions: list[dict[str, Any]], cli_sessions: list[
             severity="info",
             title="Spend with negligible output and no file edits",
             detail=(
-                f"{'Chat' if source == 'chat' else 'CLI'} session {session_id} cost ${cost:.2f} but produced only "
+                f"{'Chat' if source == 'chat' else 'CLI'} session {session_id} cost {_fmt_credits(cost)} but produced only "
                 f"{output_tokens:.0f} output tokens and made no file edits. This may be an abandoned or exploratory "
                 f"session that didn't result in a change."
             ),
@@ -662,9 +679,9 @@ def _rule_model_substitution_policy(unified: dict[str, Any], cfg: dict[str, Any]
             severity="info",
             title=f"Standardizing on {cheap_model} for {source} would cost less this period",
             detail=(
-                f"Actual {source} spend this period was ${actual_cost:.2f} across {call_count} call(s). Running "
-                f"the same token volume through {cheap_model} instead is estimated at ${hyp['cost']:.2f} - "
-                f"a saving of ~${savings:.2f}. This assumes {cheap_model} would produce acceptably similar results, "
+                f"Actual {source} spend this period was {_fmt_credits(actual_cost)} across {call_count} call(s). Running "
+                f"the same token volume through {cheap_model} instead is estimated at {_fmt_credits(hyp['cost'])} - "
+                f"a saving of ~{_fmt_credits(savings)}. This assumes {cheap_model} would produce acceptably similar results, "
                 f"which is a policy decision, not something this dashboard can verify."
             ),
             source=source,
@@ -777,7 +794,7 @@ def _rule_premium_request_burn(premium: dict[str, Any], cfg: dict[str, Any]) -> 
             f"{used:.0f} of {allowance} AI credits used with {days_remaining} day(s) left in the month "
             f"({budget.get('percentUsed', 0.0):.0f}% used). At the current burn rate "
             f"(~{budget.get('burnRatePerDay', 0.0):.1f} credits/day), month-end usage is projected at {projected:.0f} "
-            f"({'an overshoot of ~%.0f credits (~$%.2f)' % (overshoot, overshoot * CREDIT_USD) if overshoot > 0 else 'within the allowance'})."
+            f"({'an overshoot of ~%.0f credits' % overshoot if overshoot > 0 else 'within the allowance'})."
         ),
         source="both",
         evidence=[{

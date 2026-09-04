@@ -25,6 +25,7 @@ except Exception:  # pragma: no cover - non-Linux platforms
 
 from dashboard_utils import *
 from cli_usage import empty_cli_payload
+from chronicle_view import empty_chronicle_payload
 from token_usage import new_token_block
 
 DEFAULT_CACHE_VERIFY_SECONDS = max(30, env_int("COPILOT_DASHBOARD_CACHE_VERIFY_SECONDS", 300))
@@ -253,6 +254,11 @@ def compact_app_data_for_html(app_data: dict[str, Any]) -> dict[str, Any]:
     "analysis": app_data.get("analysis", {}),
     "periods": app_data.get("periods", {}),
     "cli": app_data.get("cli") or empty_cli_payload(None),
+    # Chronicle export status + credit split (chronicle_view.py). Same
+    # load-bearing pass-through as "diagnostics" below: without it the
+    # Chronicle tab would be empty in the static HTML but populated on the
+    # server path.
+    "chronicle": app_data.get("chronicle") or empty_chronicle_payload(None),
     # Unified backend usage model + premium-request/budget accounting
     # (usage_model.py / premium_requests.py). Additive: safe empty defaults
     # keep older-shaped app_data from breaking this pass-through.

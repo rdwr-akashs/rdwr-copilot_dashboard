@@ -17,6 +17,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 import dashboard_core
+from chronicle_export import default_state_path as chronicle_default_state_path
 from cli_usage import default_cli_db_path, default_cli_otel_paths
 from dashboard_core import build_dashboard_data, default_output_path, discover_log_dirs, load_full_session_payload
 from remote_sync import RemoteSyncManager
@@ -122,7 +123,13 @@ class DashboardCache:
         return mtime_ns // cls._QUANTUM_NS
 
     @classmethod
-    def compute_fingerprint(cls, log_dirs: list[str], cli_db_path: str | None, otel_paths: list[str]) -> str:
+    def compute_fingerprint(
+        cls,
+        log_dirs: list[str],
+        cli_db_path: str | None,
+        otel_paths: list[str],
+        chronicle_state_path: str | None = None,
+    ) -> str:
         hasher = hashlib.sha256()
         for log_dir in sorted(set(log_dirs or [])):
             try:
@@ -162,6 +169,21 @@ class DashboardCache:
                 )
             except OSError:
                 hasher.update(f"O|{otel_path}|MISSING".encode("utf-8", "ignore"))
+        # The chronicle watermark file. Without it, a `--chronicle` export that
+        # shipped rows but coincided with no new CLI activity would leave the
+        # Chronicle tab's "rows pending" figure stale until max-age expiry -- and
+        # an export-status panel that lags the export it reports on is worse than
+        # no panel.
+        state_path = chronicle_state_path or chronicle_default_state_path()
+        try:
+            state_stat = os.stat(state_path)
+            hasher.update(
+                f"CH|{state_path}|{cls._quantized_mtime(state_stat.st_mtime_ns)}|{state_stat.st_size}".encode(
+                    "utf-8", "ignore"
+                )
+            )
+        except OSError:
+            hasher.update(f"CH|{state_path}|MISSING".encode("utf-8", "ignore"))
         return hasher.hexdigest()
 
     def ensure_fresh(

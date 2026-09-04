@@ -427,7 +427,7 @@ def build_budget(unified: dict[str, Any], config: dict[str, Any], now_ms: float 
                 "title": "AI credit usage critical" if current_severity == "critical" else "AI credit usage high",
                 "detail": (
                     f"{used:.0f} of {allowance:.0f} AI credits used so far this month "
-                    f"({percent_used:.0f}%) - about ${used_usd:.2f} of model usage."
+                    f"({percent_used:.0f}% of the allowance)."
                 ),
             })
 

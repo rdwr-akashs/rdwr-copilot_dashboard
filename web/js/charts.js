@@ -128,7 +128,7 @@ Sessions: ${formatInteger(row.sessionCount || 0)} · Chats: ${formatInteger(row.
       }
       const metric = (metricKey === 'tokens')
         ? { label: 'Total tokens', color: 'var(--blue)', value: (block) => Number(block.input || 0) + Number(block.output || 0), format: formatInteger }
-        : { label: 'Cost', color: 'var(--teal)', value: (block) => Number(block.cost || 0), format: formatCost };
+        : { label: 'AI credits', color: 'var(--teal)', value: (block) => Number(block.cost || 0), format: formatCost };
       const blockKey = isBilledMode() ? 'billed' : 'attributed';
 
       const points = rows.map((row) => {

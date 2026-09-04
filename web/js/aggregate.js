@@ -581,8 +581,8 @@ import { APP_DATA, STATE, isBilledMode, isCliSessionHidden, isSessionHidden } fr
     export function monthlyTrendMetricConfig() {
       return {
         cost: {
-          label: 'Cost',
-          short: 'Cost',
+          label: 'AI credits',
+          short: 'Credits',
           color: 'var(--teal)',
           value: (row) => Number(row?.totals?.cost || 0),
           format: (value) => formatCost(value),

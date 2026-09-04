@@ -2,7 +2,7 @@ import { unifiedFilteredBySourceKey, unifiedFilteredDailyRows } from './aggregat
 import { switchAnalysisTab, switchTab } from './actions.js';
 import { filterInsightsBySource } from './filters.js';
 import { renderUnifiedTrendChart } from './charts.js';
-import { CREDIT_USD, escapeHtml, formatCompact, formatCost, formatCreditValue, formatInteger, formatPercent, pickTokenBlock } from './format.js';
+import { CREDIT_USD, escapeHtml, formatCompact, formatCost, formatInteger, formatPercent, pickTokenBlock } from './format.js';
 import { APP_DATA, STATE } from './state.js';
 
     // Maps a status ('ok'|'warn'|'critical') onto the CSS state-class
@@ -104,7 +104,7 @@ import { APP_DATA, STATE } from './state.js';
           <div class="note small">Across full history, all sources — not narrowed by the period/source filters above (these lists have no per-day breakdown server-side).</div>
           <div class="table-scroll">
             <table class="rollup-table table-collapse">
-              <thead><tr><th>${escapeHtml(keyLabel)}</th><th class="num">Cost</th><th class="num">Tokens</th><th class="num">Sessions</th></tr></thead>
+              <thead><tr><th>${escapeHtml(keyLabel)}</th><th class="num">AI credits</th><th class="num">Tokens</th><th class="num">Sessions</th></tr></thead>
               <tbody>${body}</tbody>
             </table>
           </div>
@@ -141,7 +141,7 @@ import { APP_DATA, STATE } from './state.js';
             <span class="badge">${escapeHtml(insight.severity || 'info')}</span>
           </div>
           <div class="note small">${escapeHtml(insight.detail || '')}</div>
-          ${insight.estimatedSavings ? `<div class="note small">Est. savings: ${formatCost(insight.estimatedSavings.cost || 0)} · ${formatCreditValue(insight.estimatedSavings.cost || 0)} AI credits</div>` : ''}
+          ${insight.estimatedSavings ? `<div class="note small">Est. savings: ${formatCost(insight.estimatedSavings.cost || 0)}</div>` : ''}
         </div>`).join('');
       return `
         <div class="panel">

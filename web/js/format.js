@@ -153,19 +153,6 @@ import { STATE, isBilledMode } from './state.js';
       return Math.round(n).toString();
     }
 
-    // Precision scales with magnitude. A fixed 4 decimals made aggregate
-    // figures read as raw floats rather than money ("$100.3124"), while a
-    // fixed 2 would collapse every per-call and per-1M-token price to
-    // "$0.00". So: dollars-and-cents (grouped) at $1 and above, 4 decimals
-    // below it where the fractions are the whole point.
-    export function formatCost(value) {
-      const n = Number(value || 0);
-      if (Math.abs(n) >= 1) {
-        return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-      }
-      return `$${n.toFixed(4)}`;
-    }
-
     // GitHub meters paid Copilot plans in AI credits, where 1 credit = $0.01 of
     // model usage (premium_requests.CREDIT_USD server-side). Any credit figure
     // shown in the UI is a dollar cost x 100 — never a count of calls or
@@ -176,14 +163,39 @@ import { STATE, isBilledMode } from './state.js';
       return Number(cost || 0) / CREDIT_USD;
     }
 
-    // Credit counts run from fractions (a single cheap call) to five figures
-    // (a month of agentic CLI use), so the same magnitude rule as money
-    // applies: group thousands and drop the decimal once the tenths stop
-    // carrying information ("10,031", not "10031.2").
+    // Credit counts run from hundredths (one cheap call) to five figures (a
+    // month of agentic CLI use), so precision scales with magnitude: group
+    // thousands and drop the decimals once they stop carrying information
+    // ("10,031", not "10031.24"), but keep four of them for the per-call and
+    // per-1M-token fractions where they are the whole point.
+    export function formatCreditCount(credits) {
+      const value = Number(credits || 0);
+      const magnitude = Math.abs(value);
+      if (magnitude >= 1000) return Math.round(value).toLocaleString();
+      if (magnitude >= 10) return value.toFixed(1);
+      if (magnitude >= 0.01 || value === 0) return value.toFixed(2);
+      return value.toFixed(4);
+    }
+
     export function formatCreditValue(cost) {
-      const credits = creditsFromCost(cost);
-      if (Math.abs(credits) >= 1000) return Math.round(credits).toLocaleString();
-      return credits.toFixed(1);
+      return formatCreditCount(creditsFromCost(cost));
+    }
+
+    // For figures that are ALREADY denominated in credits rather than dollars —
+    // the chronicle rows are priced in credits by GitHub's own rate table, so
+    // sending them through formatCost() would multiply them by 100 a second
+    // time. Same precision ladder and same `cr` suffix, no dollar round-trip.
+    export function formatCreditUnits(credits) {
+      return `${formatCreditCount(credits)} cr`;
+    }
+
+    // Spend is reported in AI credits, not dollars: credits are the unit
+    // GitHub meters paid plans in, so they are what a figure on this dashboard
+    // can be compared against an allowance. Every `cost` in app_data is still
+    // a USD float — this is the single display funnel that converts, which is
+    // why it keeps the `formatCost` name its ~80 call sites already use.
+    export function formatCost(value) {
+      return `${formatCreditValue(value)} cr`;
     }
 
     export function formatCredits(cost) {
@@ -261,9 +273,9 @@ import { STATE, isBilledMode } from './state.js';
       return `<span class="badge ${p.badgeClass}" title="${escapeHtml(p.title)}">${escapeHtml(p.label)}</span>`;
     }
 
-    // "Billed cost" is only an honest label when the figure came from GitHub;
-    // otherwise say "Estimated cost" and mean it.
-    export function costLabel(row, noun = 'cost') {
+    // "Billed AI credits" is only an honest label when the figure came from
+    // GitHub; otherwise say "Estimated" and mean it.
+    export function costLabel(row, noun = 'AI credits') {
       return costProvenance(row).exact ? `Billed ${noun}` : `Estimated ${noun}`;
     }
 

@@ -41,7 +41,7 @@ import { sortRows } from './tables.js';
       return `
         <section class="panel">
           <h2 class="section-title">Model prices</h2>
-          <div class="section-subtitle">Prices per 1M tokens, quoted from GitHub's official <a href="https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing" target="_blank" rel="noopener">models and pricing</a> page and configurable in <code>model_pricing.py</code>. Sorted cheapest first.</div>
+          <div class="section-subtitle">Prices per 1M tokens in AI credits (1 credit = $0.01 of model usage), converted from the dollar rates on GitHub's official <a href="https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing" target="_blank" rel="noopener">models and pricing</a> page and configurable in <code>model_pricing.py</code>. Sorted cheapest first.</div>
           <div class="note small" style="margin-bottom:10px">
             <strong>This table is a fallback, not the primary cost source.</strong> Copilot CLI usage is priced from what GitHub actually charged each call (recorded in <code>~/.copilot/session-store.db</code>), so those figures are exact and already include promotional pricing, long-context tiers and the 10% auto-model-selection discount. This table prices the VS Code chat half of the data, where no billing figure is exposed, and backstops CLI rows recorded by an older CLI build. Two caveats apply to those fallback estimates: the 10% auto-model-selection discount is not modelled (nothing in either data source flags a call as auto-routed), and chat telemetry exposes no cache-write counter, so cache-heavy chat sessions read as a lower bound.
           </div>
@@ -50,10 +50,10 @@ import { sortRows } from './tables.js';
               <thead>
                 <tr>
                   <th>Model</th>
-                  <th>Input $/M</th>
-                  <th>Cached-read $/M</th>
-                  <th title="Writing a prompt into the provider cache. Anthropic charges 1.25x input; models whose pricing row prints &quot;Not applicable&quot; are billed nothing, shown here as $0.">Cache-write $/M</th>
-                  <th>Output $/M</th>
+                  <th>Input cr/M</th>
+                  <th>Cached-read cr/M</th>
+                  <th title="Writing a prompt into the provider cache. Anthropic charges 1.25x input; models whose pricing row prints &quot;Not applicable&quot; are billed nothing, shown here as 0.00 cr.">Cache-write cr/M</th>
+                  <th>Output cr/M</th>
                   <th title="Above the listed prompt size, the entire call bills at the long-context rates instead of the default ones.">Long-context tier</th>
                 </tr>
               </thead>

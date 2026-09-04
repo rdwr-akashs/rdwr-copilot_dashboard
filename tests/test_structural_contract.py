@@ -12,6 +12,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+from chronicle_view import empty_chronicle_payload
 from cli_usage import empty_cli_payload
 from compact_files import compact_app_data_for_html
 from premium_requests import MULTIPLIERS, PLAN_ALLOWANCES
@@ -126,6 +127,37 @@ def test_compact_app_data_for_html_preserves_diagnostics():
     assert compacted["diagnostics"] == app_data["diagnostics"]
 
 
+def test_compact_app_data_for_html_preserves_chronicle():
+    # The Chronicle tab is fed entirely from this key: export watermarks and the
+    # per-token-type credit split. Dropped here, the tab would render its "no
+    # chronicle data" state in the static HTML while the live server path showed
+    # real figures - the same silent divergence `diagnostics` guards against.
+    app_data = _app_data_with_unified_and_premium()
+    app_data["chronicle"] = {
+        **empty_chronicle_payload("/tmp/session-store.db"),
+        "available": True,
+        "reason": None,
+        "streams": [
+            {
+                "stream": "copilot_chronicle_usage",
+                "table": "assistant_usage_events",
+                "watermarkColumn": "id",
+                "timeColumn": "created_at",
+                "lastId": 42,
+                "sentAt": "2026-01-01T00:00:00",
+                "rowsInDb": 50,
+                "shipped": 42,
+                "pending": 8,
+                "endpoint": "http://localhost:5080/api/default/copilot_chronicle_usage/_json",
+                "everShipped": True,
+            }
+        ],
+    }
+    compacted = compact_app_data_for_html(app_data)
+    assert "chronicle" in compacted
+    assert compacted["chronicle"] == app_data["chronicle"]
+
+
 def test_compact_app_data_for_html_provides_safe_defaults_when_keys_absent():
     # An older-shaped app_data (pre unified/premium/insights) must not crash
     # compact_app_data_for_html, and must still produce the new keys with
@@ -141,6 +173,8 @@ def test_compact_app_data_for_html_provides_safe_defaults_when_keys_absent():
     assert set(compacted["unified"].keys()) == UNIFIED_TOP_LEVEL_KEYS
     assert set(compacted["premium"].keys()) == PREMIUM_TOP_LEVEL_KEYS
     assert compacted["insights"] == []
+    assert compacted["chronicle"]["available"] is False
+    assert compacted["chronicle"]["streams"] == []
     assert compacted["diagnostics"] == {
         "entries": [],
         "summary": {"total": 0, "errors": 0, "warnings": 0, "costImpacting": 0},

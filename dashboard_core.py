@@ -52,6 +52,11 @@ from premium_requests import load_config as load_premium_config, build_budget, g
 from insights_engine import build_insights_with_diagnostics
 from openobserve_export import export_insights as export_insights_to_openobserve
 from chronicle_export import export_chronicle
+from chronicle_view import (
+  build_chronicle_payload,
+  empty_chronicle_payload,
+  REASON_QUERY_FAILED as CHRONICLE_REASON_QUERY_FAILED,
+)
 
 def discover_log_dirs() -> list[str]:
     if os.environ.get("COPILOT_DEBUG_LOGS"):
@@ -453,6 +458,11 @@ def compose_app_data(
   premium_quota: int | None = None,
   premium_config_path: str | None = None,
   anonymize: bool = False,
+  chronicle_db_path: str | None = None,
+  chronicle_state_path: str | None = None,
+  chronicle_base_url: str | None = None,
+  chronicle_org: str | None = None,
+  chronicle_stream_urls: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build the complete ``app_data`` payload shared by every entry point.
 
@@ -500,6 +510,39 @@ def compose_app_data(
         source=str(cli_db_path or default_cli_db_path() or ""),
       )
       app_data["cli"] = empty_cli_payload(cli_db_path, REASON_QUERY_FAILED, str(exc))
+
+    # Chronicle export status + the exact per-token-type credit split. Read from
+    # the same local store as the CLI block above and never over the network, so
+    # this stays truthful whether or not OpenObserve is reachable.
+    # Same resolution order `export_chronicle` uses (`--chronicle-db` wins over
+    # `--cli-db`), so the status shown is the status of the store that was
+    # actually shipped.
+    resolved_chronicle_db = chronicle_db_path or cli_db_path or default_cli_db_path()
+    try:
+      app_data["chronicle"] = build_chronicle_payload(
+        db_path=resolved_chronicle_db,
+        state_path=chronicle_state_path,
+        base_url=chronicle_base_url,
+        org=chronicle_org,
+        stream_urls=chronicle_stream_urls,
+      )
+    except Exception as exc:
+      # Only the Chronicle tab loses content here; the CLI figures it
+      # cross-foots against are already in app_data["cli"], so this degrades to
+      # an empty panel rather than a wrong one.
+      diagnostics.report(
+        diagnostics.CODE_CLI_QUERY_FAILED,
+        (
+          "Reading chronicle export state from the Copilot CLI database failed, "
+          f"so the Chronicle tab has no export status or credit split: {exc}"
+        ),
+        severity="warning",
+        impact="presentation",
+        source=str(resolved_chronicle_db or ""),
+      )
+      app_data["chronicle"] = empty_chronicle_payload(
+        resolved_chronicle_db, CHRONICLE_REASON_QUERY_FAILED, str(exc)
+      )
 
     # Unified backend usage model + premium-request/budget accounting. Purely
     # additive: failures degrade to empty structures rather than breaking the
@@ -689,6 +732,11 @@ def write_dashboard(
       premium_quota=premium_quota,
       premium_config_path=premium_config_path,
       anonymize=anonymize,
+      chronicle_db_path=chronicle_db,
+      chronicle_state_path=chronicle_state_path,
+      chronicle_base_url=chronicle_base_url,
+      chronicle_org=chronicle_org,
+      chronicle_stream_urls=chronicle_stream_urls,
     )
     if openobserve:
       result = export_insights_to_openobserve(

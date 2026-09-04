@@ -3,7 +3,7 @@ import { activeSummary, analysisForMode, cliMonthlyBuckets, monthlyTrendMetricCo
 import { renderApp } from './app.js';
 import { renderGlobalTokenPieChart, renderMonthlyTrendChart } from './charts.js';
 import { filterInsightsBySource } from './filters.js';
-import { cacheHitRateForBlock, escapeHtml, formatCompact, formatCost, formatCreditValue, formatDuration, formatInteger, formatPercent, formatTimestamp, overheadLabel, sortArrow, summaryDisplayTotals } from './format.js';
+import { cacheHitRateForBlock, escapeHtml, formatCompact, formatCost, formatDuration, formatInteger, formatPercent, formatTimestamp, overheadLabel, sortArrow, summaryDisplayTotals } from './format.js';
 import { openFileModal } from './modals.js';
 import { APP_DATA, STATE, isBilledMode, tokenModeLabel } from './state.js';
 import { registerTableExport, renderCsvExportButton, renderTable, sortFiles, sortRows } from './tables.js';
@@ -510,7 +510,7 @@ import { registerTableExport, renderCsvExportButton, renderTable, sortFiles, sor
                   <th class="num">Uncached</th>
                   <th class="num">Cached</th>
                   <th class="num">Output</th>
-                  <th class="num">Cost</th>
+                  <th class="num">AI credits</th>
                   <th class="num">Cache hit</th>
                   ${cliHasData ? '<th class="num">CLI sessions</th><th class="num">CLI cost</th>' : ''}
                 </tr>
@@ -644,7 +644,7 @@ import { registerTableExport, renderCsvExportButton, renderTable, sortFiles, sor
           ${hasSavings ? `
           <div class="pill-list" style="margin-top:10px;">
             ${Number(savings.cost || 0) > 0 ? `<span class="pill">Est. saving ${escapeHtml(formatCost(savings.cost))}</span>` : ''}
-            ${Number(savings.cost || 0) > 0 ? `<span class="pill">${escapeHtml(formatCreditValue(savings.cost))} AI credits</span>` : ''}
+            ${Number(savings.cost || 0) > 0 ? `<span class="pill">${escapeHtml(formatCost(savings.cost))} saved</span>` : ''}
             ${Number(savings.premiumRequests || 0) > 0 ? `<span class="pill" title="Legacy meter: annual request-billed Pro/Pro+ only.">${escapeHtml(formatInteger(savings.premiumRequests))} premium req. (legacy)</span>` : ''}
           </div>` : `<div class="note small" style="margin-top:10px">Informational — no quantifiable saving.</div>`}
           <details style="margin-top:10px" id="insight-evidence-${index}">
@@ -707,7 +707,7 @@ import { registerTableExport, renderCsvExportButton, renderTable, sortFiles, sor
             </div>
             <div style="text-align:right">
               <div class="label" style="color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.04em">Estimated savings available</div>
-              <div style="font-size:1.3rem;font-weight:700" class="value cost">${escapeHtml(formatCost(totalCost))}${totalPremium ? ` <span class="note small" style="font-weight:400">= ${escapeHtml(formatCreditValue(totalCost))} AI credits</span>` : ''}</div>
+              <div style="font-size:1.3rem;font-weight:700" class="value cost">${escapeHtml(formatCost(totalCost))}</div>
             </div>
           </div>
           <div class="filter-bar" style="margin-top:14px;margin-bottom:0;align-items:center">
@@ -719,7 +719,7 @@ import { registerTableExport, renderCsvExportButton, renderTable, sortFiles, sor
             </label>
             <button type="button" class="copy-button" onclick="copyInsightsMarkdown(this)">📋 Copy summary as Markdown</button>
           </div>
-          <div class="note small" style="margin-top:12px">${formatInteger(visible.length)} of ${formatInteger(allInsights.length)} shown (source: ${escapeHtml(sourceLabel)}).${hiddenCrossSource ? ` ${formatInteger(hiddenCrossSource)} cross-source finding(s) are hidden because they compare Chat against CLI — switch the source filter to <strong>All</strong> to see them.` : ''} Dollar, AI-credit (1 credit = $0.01) and legacy premium-request figures throughout this panel are local estimates derived from parsed usage data — not official GitHub billing.</div>
+          <div class="note small" style="margin-top:12px">${formatInteger(visible.length)} of ${formatInteger(allInsights.length)} shown (source: ${escapeHtml(sourceLabel)}).${hiddenCrossSource ? ` ${formatInteger(hiddenCrossSource)} cross-source finding(s) are hidden because they compare Chat against CLI — switch the source filter to <strong>All</strong> to see them.` : ''} AI-credit (1 credit = $0.01 of model usage) and legacy premium-request figures throughout this panel are local estimates derived from parsed usage data — not official GitHub billing.</div>
           <div style="margin-top:14px">${cards}</div>
         </section>`;
     }
