@@ -50,8 +50,6 @@ Thumbs.db
 *.mov
 *.wmv
 
-# Generated files
-*.html
 
 # Environment and secrets
 .env

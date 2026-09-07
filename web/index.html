@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Copilot Token Dashboard</title>
+  <style>
+<!-- STYLES -->
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <!-- Modal shells live outside #app on purpose: renderApp() owns #app's
+       children (it rewrites whole regions on every state change), so markup
+       kept inside it would be wiped and the modal handlers in modals.js /
+       tab-cli.js would hit null elements. -->
+  <div id="fullChatModalBackdrop" class="modal-backdrop" onclick="closeFullChatModal(event)">
+    <div class="modal" onclick="event.stopPropagation()" style="max-width:1180px">
+      <div class="modal-header">
+        <div>
+          <h3 id="fullChatModalTitle">Full chat</h3>
+          <div id="fullChatModalSubtitle" class="subtitle"></div>
+        </div>
+        <div class="modal-actions" style="display:flex;gap:8px">
+          <button type="button" id="fullChatExportBtn" style="border:1px solid rgba(57,197,207,0.45);background:rgba(57,197,207,0.12);color:var(--teal);padding:8px 12px;border-radius:10px;cursor:pointer;font-weight:700;font-size:0.85rem">⬇ Export chat JSON</button>
+          <button type="button" onclick="closeFullChatModal()">Close</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="fullChatModalContent"></div>
+      </div>
+    </div>
+  </div>
+  <div id="genaiModalBackdrop" class="modal-backdrop" onclick="closeGenAiModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div>
+          <h3 id="genaiModalTitle">GenAI details</h3>
+          <div id="genaiModalSubtitle" class="subtitle"></div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" onclick="closeGenAiModal()">Close</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="genaiModalStats" class="session-meta"></div>
+        <div id="genaiModalTabs" class="modal-tabs"></div>
+        <div id="genaiModalContent"></div>
+      </div>
+    </div>
+  </div>
+  <div id="fileModalBackdrop" class="modal-backdrop" onclick="closeFileModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div>
+          <h3 id="fileModalTitle">File timeline</h3>
+          <div id="fileModalSubtitle" class="subtitle"></div>
+        </div>
+        <div class="modal-actions" style="display:flex;gap:8px">
+          <button type="button" id="fileExportBtn" style="border:1px solid rgba(57,197,207,0.45);background:rgba(57,197,207,0.12);color:var(--teal);padding:8px 12px;border-radius:10px;cursor:pointer;font-weight:700;font-size:0.85rem">⬇ Export JSON</button>
+          <button type="button" onclick="closeFileModal()">Close</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="fileModalStats" class="session-meta"></div>
+        <div id="fileModalContent"></div>
+      </div>
+    </div>
+  </div>
+  <div id="modelCompareModalBackdrop" class="modal-backdrop" onclick="closeModelCompareModal(event)">
+    <div class="modal" onclick="event.stopPropagation()" style="max-width:700px">
+      <div class="modal-header">
+        <div>
+          <h3 id="modelCompareModalTitle">Model cost comparison</h3>
+          <div id="modelCompareModalSubtitle" class="subtitle"></div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" onclick="closeModelCompareModal()">Close</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="modelCompareModalContent"></div>
+      </div>
+    </div>
+  </div>
+  <div id="chatDeleteModalBackdrop" class="modal-backdrop" onclick="closeChatDeleteModal(event)">
+    <div class="modal" onclick="event.stopPropagation()" style="max-width:760px">
+      <div class="modal-header">
+        <div>
+          <h3 id="chatDeleteModalTitle">Delete chats from view</h3>
+          <div id="chatDeleteModalSubtitle" class="subtitle">This hides chats locally in your browser (from the Chats tab). It does not delete raw debug logs.</div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" onclick="closeChatDeleteModal()">Close</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="event-section">
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <label><input type="radio" name="chatDeleteMode" value="all" onchange="setDeleteMode(this.value)" checked> <span id="chatDeleteAllLabel">Delete all visible chats</span></label>
+            <label style="display:flex;flex-wrap:wrap;align-items:center;gap:8px"><input type="radio" name="chatDeleteMode" value="before_date" onchange="setDeleteMode(this.value)"> Delete chats before
+              <select id="deleteAgePreset" onchange="setDeleteAgePreset(this.value)">
+                <option value="day">last day cutoff</option>
+                <option value="week" selected>last week cutoff</option>
+                <option value="month">last month cutoff</option>
+                <option value="custom">specific date</option>
+              </select>
+              <input type="date" id="deleteSpecificDate" onchange="setDeleteSpecificDate(this.value)">
+            </label>
+            <label style="display:flex;flex-wrap:wrap;align-items:center;gap:8px"><input type="radio" name="chatDeleteMode" value="keep_last" onchange="setDeleteMode(this.value)"> Delete all but the last
+              <input type="number" id="deleteKeepCount" min="1" step="1" value="10" style="width:90px" onchange="setDeleteKeepCount(this.value)"> <span id="chatDeleteKeepLastLabel">chats</span>
+            </label>
+          </div>
+        </div>
+        <div id="chatDeletePreview" class="note"></div>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+          <button type="button" onclick="closeChatDeleteModal()">Cancel</button>
+          <button type="button" id="chatDeleteApplyBtn" onclick="applyChatDeletion()" style="border:1px solid rgba(248,81,73,0.45);background:rgba(248,81,73,0.12);color:var(--red);font-weight:700">Delete selected chats</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+<!-- SCRIPT -->
+  </script>
+</body>
+</html>
