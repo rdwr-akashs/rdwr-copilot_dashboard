@@ -300,6 +300,103 @@ Weekly is the honest cadence: the numeric panels are free and go stale daily, wh
 > sessions to your GitHub account unless `{"remoteExport": false}` is set in
 > `~/.copilot/settings.json`. Nothing here can prevent that.
 
+## Claude Code Insights: `/insights`'s own history, in OpenObserve
+
+Claude Code has no equivalent of chronicle's local `session-store.db` -- nothing accumulates on disk
+just from using the CLI. What it has instead is a *command*: running `/insights` in a Claude Code
+session scans your local transcripts, asks the model to judge each one worth judging, and writes the
+result to two on-disk caches under `~/.claude/usage-data/`:
+
+| Cache | Grain | Carries |
+| --- | --- | --- |
+| `session-meta/<session_id>.json` | one session | mechanical facts, computed locally and free -- duration, message counts, tool counts, git commits, token counts |
+| `facets/<session_id>.json` | a subset of sessions | the model's own judgement, one billed call the first time a session is analysed -- outcome, friction, satisfaction, a one-line summary |
+
+`claude_insights_export.py` reads those two caches -- never runs `/insights`, never makes a model call
+of its own -- merges them by `session_id`, and ships one row per session to a single OpenObserve
+stream, `claude_insights_sessions`. Refreshing the data means running `/insights` yourself in a Claude
+Code session; this script's job starts after that, the same way `chronicle_export.py` starts after
+`copilot` has already written to its store.
+
+**Per machine, like chronicle.** `/insights` only ever reads local transcripts, so there is no
+server-side aggregation across developers. A teammate who wants their own rows here has to run
+`/insights` at least once on their own machine and then run this script there, pointed at the same
+OpenObserve instance.
+
+**One stream, not five.** Chronicle needs five streams because its SQLite store has five tables of
+different grain. `/insights`'s two caches share one grain -- one row per session -- so they are one
+stream instead.
+
+**A changed row is a new row.** Unlike a chronicle row, the *same* `session_id` can be re-analysed
+later with a fresher transcript, and every column is carried on every re-send, so OpenObserve ends up
+holding more than one version of some sessions. Every panel on
+`openobserve/claude_insights.dashboard.json` keeps only the newest version, by `captured_at` (the time
+this script sent the row) rather than `_timestamp` (the session's own start time, identical across
+every resend):
+
+```sql
+WITH latest AS (
+  SELECT session_id, MAX(captured_at) AS cap FROM claude_insights_sessions GROUP BY session_id
+)
+SELECT s.* FROM claude_insights_sessions s
+JOIN latest l ON l.session_id = s.session_id AND l.cap = s.captured_at
+```
+
+not `ROW_NUMBER() OVER (PARTITION BY session_id ...)` -- see "things that will confuse you once" in
+the chronicle section above for why that window shape is rejected on this OpenObserve build.
+
+### Running it
+
+```bash
+export OPENOBSERVE_USER=admin@localhost.dev
+export OPENOBSERVE_PASSWORD='...'
+export OPENOBSERVE_BASE_URL=http://localhost:5080
+
+python openobserve/seed_schema.py openobserve/claude_insights.dashboard.json   # register the columns
+python openobserve/push_dashboard.py openobserve/claude_insights.dashboard.json
+python claude_insights_export.py --dry-run     # reads the local cache, sends nothing
+python claude_insights_export.py               # send it
+python openobserve/validate_dashboard_queries.py openobserve/claude_insights.dashboard.json --var developer=$USER
+```
+
+`openobserve/seed_schema.py` seeds both this stream and every chronicle stream in the same run --
+adding this did not change how the Copilot half is seeded, only added a second stream to the same
+plan. If `~/.claude/usage-data/session-meta` does not exist, `claude_insights_export.py` says so and
+exits cleanly rather than failing: that machine has simply never run `/insights`.
+
+Re-running is safe. A session-meta/facets pair is only resent when its own file mtime moves past what
+`~/.copilot-dashboard/claude_insights_state.json` (or `$CLAUDE_INSIGHTS_STATE`) last recorded for that
+`session_id`, so a daily re-run with nothing new sends nothing. `--reset` forgets the watermark and
+resends every session-meta file found; like chronicle's `--reset`, it cannot un-send what a previous
+run already sent.
+
+### What it deliberately sends, given the choice
+
+`first_prompt` is already truncated by `/insights` itself to roughly 200 characters before it ever
+reaches this script. `underlying_goal`, `brief_summary` and `friction_detail` are the model's own
+prose about a session -- the same kind of thing `copilot_chronicle_advice` stores, and the same
+caution applies: **read a captured row before putting this stream on an instance other people can
+see**, because it names what someone was working on.
+
+### The dashboard
+
+`openobserve/claude_insights.dashboard.json`, one tab, ten panels: sessions analysed, average length,
+dissatisfaction rate and uncommitted-edit rate as tiles; **What to change, ranked** -- the same
+threshold-over-real-columns idea as chronicle's panel of the same name, just over friction,
+interruptions, tool errors and uncommitted work instead of credits and cache tokens, because that is
+what a local transcript judgement has to offer instead of a bill; sessions over time by outcome; a
+per-developer table; what sessions were for, by goal category; friction, by kind, with one example
+each; and the latest sessions, newest first, with the model's own one-line summary where a judgement
+exists.
+
+Its own `Developer` variable is sourced from `claude_insights_sessions.service_user` rather than from
+any chronicle stream, because nothing else populates it -- a developer with Copilot chronicle history
+but no `/insights` run of their own is not in this dropdown, the same asymmetry chronicle's own
+Developer variable has against `lld_agent`-only developers on the parent repo this was ported from.
+
+Nothing in `openobserve/chronicle.dashboard.json` was touched to add this -- it is a separate file,
+a separate stream, and a separate `Developer` variable throughout.
+
 ## Generate a static HTML file
 
 From the project directory:
@@ -574,8 +671,10 @@ Common approaches:
 - `generate_dashboard.py` — CLI entrypoint for static HTML generation
 - `chronicle_export.py` — replays the CLI session store's history into the `copilot_chronicle_*` OpenObserve streams (numbers only; never prompt or reply text)
 - `chronicle_advice.py` — captures the prose `/chronicle` writes, over the Agent Client Protocol. Opt-in: every run is a billed model call
+- `claude_insights_export.py` — replays Claude Code's local `/insights` cache (`~/.claude/usage-data/{session-meta,facets}`) into the `claude_insights_sessions` OpenObserve stream; never runs `/insights`, never makes a model call
 - `openobserve/chronicle.dashboard.json` — the chronicle dashboard (history and per-developer insights), pushed with `openobserve/push_dashboard.py`
-- `openobserve/seed_schema.py` — registers every chronicle column so a panel with no data reads empty instead of red
+- `openobserve/claude_insights.dashboard.json` — the Claude Code Insights dashboard, same push/seed/validate scripts, its own stream and `Developer` variable
+- `openobserve/seed_schema.py` — registers every chronicle *and* claude-insights column so a panel with no data reads empty instead of red
 - `openobserve/validate_dashboard_queries.py` — runs every panel query against a live OpenObserve; exit code is the failure count
 - `openobserve/oo_api.py` — the management-API helper those three share
 - `serve_dashboard.py` — live HTTP server that regenerates the dashboard on request

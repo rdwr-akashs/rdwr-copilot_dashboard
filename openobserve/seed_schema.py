@@ -106,8 +106,40 @@ def chronicle_columns() -> dict:
     return plan
 
 
+def claude_insights_columns() -> dict:
+    """Stream -> columns for `claude_insights_sessions`, read from claude_insights_export.py itself.
+
+    Same reasoning as chronicle_columns(): loaded from the exporter so the two column lists cannot
+    drift, with the same importlib trick because this file lives one directory below it.
+    """
+    source = Path(__file__).resolve().parent.parent / "claude_insights_export.py"
+    if not source.exists():
+        return {}
+    spec = importlib.util.spec_from_file_location("claude_insights_export", source)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    columns = (set(module.META_COLUMNS) | set(module.FACETS_COLUMNS)
+              | set(module.DERIVED_COLUMNS) | set(module.ROW_IDENTITY))
+    return {module.STREAM: columns}
+
+
+# Numeric columns claude_insights_sessions carries whose names NUMERIC_COLUMN's keyword regex does
+# not recognise -- "git_commits" has no "count" in it, "captured_at" has no numeric-looking word at
+# all. Seeding one of these as the SEED_MARKER string would type the column Utf8, and the first real
+# integer row would widen it right back -- the exact bug TYPES above describes, just for a producer
+# this file did not know about when that regex was written.
+CLAUDE_INSIGHTS_NUMERIC_OVERRIDES = {
+    "captured_at", "git_commits", "git_pushes", "user_interruptions", "tool_errors",
+    "files_modified", "total_tool_calls", "satisfaction_positive", "satisfaction_negative",
+    # session-meta sends these as JSON booleans; claude_insights_export.py sends them on as 0/1
+    # rather than teaching this file a boolean column type for four fields -- see
+    # BOOL_AS_INT_COLUMNS in that module.
+    "uses_task_agent", "uses_mcp", "uses_web_search", "uses_web_fetch",
+}
+
+
 def streams_named_by(dashboard_path: str) -> set:
-    """Chronicle streams some panel actually reads. Used only to check the plan, never to build it.
+    """Chronicle/Claude-insights streams some panel actually reads. Checks the plan, never builds it.
 
     A stream a panel names but nothing declares is a typo or a panel from a newer dashboard, and it
     is worth saying so: seeding cannot help it and the panel will be red.
@@ -118,22 +150,25 @@ def streams_named_by(dashboard_path: str) -> set:
         for query in panel.get("queries") or []:
             for match in STREAM_REFERENCE.finditer(query.get("query") or ""):
                 name = match.group(1)
-                if name.startswith("copilot_chronicle_"):
+                if name.startswith(("copilot_chronicle_", "claude_insights_")):
                     found.add(name)
     return found
 
 
-def seed_value(column: str):
+def seed_value(column: str, stream: str = ""):
+    if column in CLAUDE_INSIGHTS_NUMERIC_OVERRIDES and stream.startswith("claude_insights_"):
+        return 0
     return 0 if NUMERIC_COLUMN.search(column) else SEED_MARKER
 
 
 def seed_logs(stream: str, columns: set, dry_run: bool) -> bool:
     """One record posted straight to the ingest API, the same way the real rows arrive.
 
-    The chronicle streams bypass any collector -- chronicle has no OTel export -- so there is no
-    OTLP route to seed them through.
+    Neither chronicle nor claude_insights_sessions has a collector route -- Copilot's CLI store has
+    no OTel export, and /insights's local cache has no export path at all -- so there is no OTLP
+    route to seed either through.
     """
-    row = {column: seed_value(column) for column in sorted(columns)}
+    row = {column: seed_value(column, stream) for column in sorted(columns)}
     if "service_user" not in columns:
         print("    WARNING: %s has no service_user column, so its seed row cannot be excluded by any"
               " panel" % stream, file=sys.stderr)
@@ -174,9 +209,10 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     plan = chronicle_columns()
+    plan.update(claude_insights_columns())
     present = {} if args.dry_run else existing()
 
-    print("seeding %d chronicle stream(s)\n" % len(plan))
+    print("seeding %d stream(s)\n" % len(plan))
     failures = 0
     for stream, columns in sorted(plan.items()):
         mark = "" if args.dry_run else ("exists" if stream in present else "MISSING")
@@ -187,8 +223,9 @@ def main(argv=None) -> int:
     if args.dashboard:
         unknown = streams_named_by(args.dashboard) - set(plan)
         if unknown:
-            print("\nWARNING: %s reads %s, which nothing in chronicle_export.py writes. Those panels"
-                  " will be red." % (args.dashboard, ", ".join(sorted(unknown))), file=sys.stderr)
+            print("\nWARNING: %s reads %s, which nothing in chronicle_export.py or "
+                  "claude_insights_export.py writes. Those panels will be red."
+                  % (args.dashboard, ", ".join(sorted(unknown))), file=sys.stderr)
             failures += 1
 
     if args.dry_run:

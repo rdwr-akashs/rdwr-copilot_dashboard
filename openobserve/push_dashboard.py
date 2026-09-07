@@ -35,9 +35,15 @@ def push(dashboard: dict) -> int:
             dashboard_id = inner.get("dashboardId")
 
     if not dashboard_id:
-        # OpenObserve assigns the id on create, so the one in the file is dropped.
+        # OpenObserve assigns the id, owner and creation time on create, so the ones in the file
+        # are dropped. `created` is not merely redundant to send: the create endpoint answers 422
+        # "premature end of input" if the body carries it at all, empty string or a real
+        # timestamp alike -- confirmed by hand against a live instance. `dashboardId` was already
+        # known to need dropping; `role`/`owner` are dropped alongside it for the same reason
+        # rather than because they were observed to break anything.
         fresh = dict(dashboard)
-        fresh.pop("dashboardId", None)
+        for server_assigned in ("dashboardId", "created", "role", "owner"):
+            fresh.pop(server_assigned, None)
         ok, created = oo_api.api("POST", "/dashboards?folder=default", fresh)
         if not ok:
             print("could not create the dashboard: %s" % created, file=sys.stderr)

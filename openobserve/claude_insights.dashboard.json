@@ -1,0 +1,1689 @@
+{
+ "v8": {
+  "version": 8,
+  "dashboardId": "",
+  "title": "Claude Code Insights (local /insights history)",
+  "description": "Claude Code's own /insights command, computed rather than narrated. Reads claude_insights_sessions, which claude_insights_export.py fills from the local ~/.claude/usage-data/{session-meta,facets} caches /insights already wrote on this machine -- per developer, per machine, the same limitation chronicle has on the Copilot side. See claude_insights_export.py and README.md's Chronicle section for the full story.",
+  "role": "",
+  "owner": "",
+  "created": "",
+  "tabs": [
+   {
+    "tabId": "insights",
+    "name": "Insights per developer",
+    "panels": [
+     {
+      "id": "cli_sessions",
+      "type": "metric",
+      "title": "Sessions /insights has analysed",
+      "description": "One row per session_id in `claude_insights_sessions`, which `claude_insights_export.py` fills from Claude Code's own local `/insights` cache -- nothing here is inferred, it is what `/insights` already computed the last time it ran on this machine. Deduplicated by keeping only the newest row per `session_id` (highest `captured_at`), because a re-run of `claude_insights_export.py` after `/insights` re-analyses a session sends a full replacement row rather than a delta, and OpenObserve has no upsert -- see the export script's module docstring.",
+      "config": {
+       "show_legends": true,
+       "legends_position": null,
+       "unit": "numbers",
+       "decimals": 1,
+       "line_thickness": 1.5,
+       "top_results_others": false,
+       "axis_border_show": false,
+       "label_option": {
+        "rotate": 0.0
+       },
+       "show_symbol": false,
+       "line_interpolation": "smooth",
+       "legend_width": {
+        "unit": "px"
+       },
+       "base_map": {
+        "type": "osm"
+       },
+       "map_type": {
+        "type": "world"
+       },
+       "map_view": {
+        "zoom": 1.0,
+        "lat": 0.0,
+        "lng": 0.0
+       },
+       "map_symbol_style": {
+        "size": "by Value",
+        "size_by_value": {
+         "min": 1.0,
+         "max": 100.0
+        },
+        "size_fixed": 2.0
+       },
+       "drilldown": [],
+       "mark_line": [],
+       "override_config": [],
+       "connect_nulls": false,
+       "no_value_replacement": "",
+       "wrap_table_cells": false,
+       "table_transpose": false,
+       "table_dynamic_columns": false,
+       "mappings": [],
+       "color": {
+        "mode": "palette-classic-by-series",
+        "fixedColor": [
+         "#53ca53"
+        ],
+        "seriesBy": "last"
+       },
+       "trellis": {
+        "layout": null,
+        "num_of_columns": 1
+       }
+      },
+      "queryType": "sql",
+      "queries": [
+       {
+        "query": "WITH latest AS (\n  SELECT session_id, MAX(captured_at) AS cap\n  FROM claude_insights_sessions\n  WHERE service_user IN (${developer}) AND service_user <> 'schema_seed'\n  GROUP BY session_id\n),\nsessions AS (\n  SELECT s.* FROM claude_insights_sessions s\n  JOIN latest l ON l.session_id = s.session_id AND l.cap = s.captured_at\n)\nSELECT COUNT(DISTINCT session_id) AS \"y_axis_1\" FROM sessions",
+        "vrlFunctionQuery": "",
+        "customQuery": true,
+        "fields": {
+         "stream": "claude_insights_sessions",
+         "stream_type": "logs",
+         "x": [],
+         "y": [
+          {
+           "label": "value",
+           "alias": "y_axis_1",
+           "column": "value",
+           "type": "custom",
+           "color": "#5960b2",
+           "args": [],
+           "isDerived": false,
+           "treatAsNonTimestamp": false,
+           "showFieldAsJson": false,
+           "functionName": "sum"
+          }
+         ],
+         "z": [],
+         "breakdown": [],
+         "filter": {
+          "filterType": "group",
+          "logicalOperator": "AND",
+          "conditions": []
+         }
+        },
+        "config": {
+         "promql_legend": "",
+         "layer_type": "scatter",
+         "weight_fixed": 1.0,
+         "limit": 0.0,
+         "min": 0.0,
+         "max": 100.0,
+         "time_shift": []
+        }
+       }
+      ],
+      "layout": {
+       "x": 0,
+       "y": 0,
+       "w": 48,
+       "h": 5,
+       "i": 1
+      },
+      "htmlContent": "",
+      "markdownContent": "",
+      "customChartContent": ""
+     },
+     {
+      "id": "cli_duration",
+      "type": "metric",
+      "title": "Average session length (minutes)",
+      "description": "`duration_minutes` from session-meta -- the span between a session's first and last event, mechanical and free, the same figure `/insights` itself reports as part of its own summary. Deduplicated by keeping only the newest row per `session_id` (highest `captured_at`), because a re-run of `claude_insights_export.py` after `/insights` re-analyses a session sends a full replacement row rather than a delta, and OpenObserve has no upsert -- see the export script's module docstring.",
+      "config": {
+       "show_legends": true,
+       "legends_position": null,
+       "unit": "numbers",
+       "decimals": 1,
+       "line_thickness": 1.5,
+       "top_results_others": false,
+       "axis_border_show": false,
+       "label_option": {
+        "rotate": 0.0
+       },
+       "show_symbol": false,
+       "line_interpolation": "smooth",
+       "legend_width": {
+        "unit": "px"
+       },
+       "base_map": {
+        "type": "osm"
+       },
+       "map_type": {
+        "type": "world"
+       },
+       "map_view": {
+        "zoom": 1.0,
+        "lat": 0.0,
+        "lng": 0.0
+       },
+       "map_symbol_style": {
+        "size": "by Value",
+        "size_by_value": {
+         "min": 1.0,
+         "max": 100.0
+        },
+        "size_fixed": 2.0
+       },
+       "drilldown": [],
+       "mark_line": [],
+       "override_config": [],
+       "connect_nulls": false,
+       "no_value_replacement": "",
+       "wrap_table_cells": false,
+       "table_transpose": false,
+       "table_dynamic_columns": false,
+       "mappings": [],
+       "color": {
+        "mode": "palette-classic-by-series",
+        "fixedColor": [
+         "#53ca53"
+        ],
+        "seriesBy": "last"
+       },
+       "trellis": {
+        "layout": null,
+        "num_of_columns": 1
+       }
+      },
+      "queryType": "sql",
+      "queries": [
+       {
+        "query": "WITH latest AS (\n  SELECT session_id, MAX(captured_at) AS cap\n  FROM claude_insights_sessions\n  WHERE service_user IN (${developer}) AND service_user <> 'schema_seed'\n  GROUP BY session_id\n),\nsessions AS (\n  SELECT s.* FROM claude_insights_sessions s\n  JOIN latest l ON l.session_id = s.session_id AND l.cap = s.captured_at\n)\nSELECT ROUND(COALESCE(AVG(duration_minutes), 0), 1) AS \"y_axis_1\" FROM sessions",
+        "vrlFunctionQuery": "",
+        "customQuery": true,
+        "fields": {
+         "stream": "claude_insights_sessions",
+         "stream_type": "logs",
+         "x": [],
+         "y": [
+          {
+           "label": "value",
+           "alias": "y_axis_1",
+           "column": "value",
+           "type": "custom",
+           "color": "#5960b2",
+           "args": [],
+           "isDerived": false,
+           "treatAsNonTimestamp": false,
+           "showFieldAsJson": false,
+           "functionName": "sum"
+          }
+         ],
+         "z": [],
+         "breakdown": [],
+         "filter": {
+          "filterType": "group",
+          "logicalOperator": "AND",
+          "conditions": []
+         }
+        },
+        "config": {
+         "promql_legend": "",
+         "layer_type": "scatter",
+         "weight_fixed": 1.0,
+         "limit": 0.0,
+         "min": 0.0,
+         "max": 100.0,
+         "time_shift": []
+        }
+       }
+      ],
+      "layout": {
+       "x": 48,
+       "y": 0,
+       "w": 48,
+       "h": 5,
+       "i": 2
+      },
+      "htmlContent": "",
+      "markdownContent": "",
+      "customChartContent": ""
+     },
+     {
+      "id": "cli_dissatisfaction",
+      "type": "metric",
+      "title": "Dissatisfaction rate, of judged sessions (%)",
+      "description": "Share of the sessions `/insights` sent to the model for judgement (not every session gets one -- see the export script) where `satisfaction_negative` outweighed `satisfaction_positive`. The split comes from `user_satisfaction_counts`, whose keys `claude_insights_export.derive_row` sorts by substring match on dissatisfied/frustrated/unsatisfied -- read that function before trusting a value that looks wrong. Deduplicated by keeping only the newest row per `session_id` (highest `captured_at`), because a re-run of `claude_insights_export.py` after `/insights` re-analyses a session sends a full replacement row rather than a delta, and OpenObserve has no upsert -- see the export script's module docstring.",
+      "config": {
+       "show_legends": true,
+       "legends_position": null,
+       "unit": "numbers",
+       "decimals": 1,
+       "line_thickness": 1.5,
+       "top_results_others": false,
+       "axis_border_show": false,
+       "label_option": {
+        "rotate": 0.0
+       },
+       "show_symbol": false,
+       "line_interpolation": "smooth",
+       "legend_width": {
+        "unit": "px"
+       },
+       "base_map": {
+        "type": "osm"
+       },
+       "map_type": {
+        "type": "world"
+       },
+       "map_view": {
+        "zoom": 1.0,
+        "lat": 0.0,
+        "lng": 0.0
+       },
+       "map_symbol_style": {
+        "size": "by Value",
+        "size_by_value": {
+         "min": 1.0,
+         "max": 100.0
+        },
+        "size_fixed": 2.0
+       },
+       "drilldown": [],
+       "mark_line": [],
+       "override_config": [],
+       "connect_nulls": false,
+       "no_value_replacement": "",
+       "wrap_table_cells": false,
+       "table_transpose": false,
+       "table_dynamic_columns": false,
+       "mappings": [],
+       "color": {
+        "mode": "palette-classic-by-series",
+        "fixedColor": [
+         "#53ca53"
+        ],
+        "seriesBy": "last"
+       },
+       "trellis": {
+        "layout": null,
+        "num_of_columns": 1
+       }
+      },
+      "queryType": "sql",
+      "queries": [
+       {
+        "query": "WITH latest AS (\n  SELECT session_id, MAX(captured_at) AS cap\n  FROM claude_insights_sessions\n  WHERE service_user IN (${developer}) AND service_user <> 'schema_seed'\n  GROUP BY session_id\n),\nsessions AS (\n  SELECT s.* FROM claude_insights_sessions s\n  JOIN latest l ON l.session_id = s.session_id AND l.cap = s.captured_at\n)\nSELECT ROUND(100.0 * SUM(CASE WHEN satisfaction_negative > satisfaction_positive THEN 1 ELSE 0 END)\n             / NULLIF(SUM(CASE WHEN satisfaction_positive IS NOT NULL OR satisfaction_negative IS NOT NULL\n                               THEN 1 ELSE 0 END), 0), 1) AS \"y_axis_1\"\nFROM sessions",
+        "vrlFunctionQuery": "",
+        "customQuery": true,
+        "fields": {
+         "stream": "claude_insights_sessions",
+         "stream_type": "logs",
+         "x": [],
+         "y": [
+          {
+           "label": "value",
+           "alias": "y_axis_1",
+           "column": "value",
+           "type": "custom",
+           "color": "#5960b2",
+           "args": [],
+           "isDerived": false,
+           "treatAsNonTimestamp": false,
+           "showFieldAsJson": false,
+           "functionName": "sum"
+          }
+         ],
+         "z": [],
+         "breakdown": [],
+         "filter": {
+          "filterType": "group",
+          "logicalOperator": "AND",
+          "conditions": []
+         }
+        },
+        "config": {
+         "promql_legend": "",
+         "layer_type": "scatter",
+         "weight_fixed": 1.0,
+         "limit": 0.0,
+         "min": 0.0,
+         "max": 100.0,
+         "time_shift": []
+        }
+       }
+      ],
+      "layout": {
+       "x": 96,
+       "y": 0,
+       "w": 48,
+       "h": 5,
+       "i": 3
+      },
+      "htmlContent": "",
+      "markdownContent": "",
+      "customChartContent": ""
+     },
+     {
+      "id": "cli_uncommitted",
+      "type": "metric",
+      "title": "Sessions that edited files but never committed (%)",
+      "description": "`files_modified > 0` and `git_commits` is 0 or absent, out of every session that touched a file at all. Work sitting uncommitted at the end of a session is not visible to `git log` and is one session away from being lost. Deduplicated by keeping only the newest row per `session_id` (highest `captured_at`), because a re-run of `claude_insights_export.py` after `/insights` re-analyses a session sends a full replacement row rather than a delta, and OpenObserve has no upsert -- see the export script's module docstring.",
+      "config": {
+       "show_legends": true,
+       "legends_position": null,
+       "unit": "numbers",
+       "decimals": 1,
+       "line_thickness": 1.5,
+       "top_results_others": false,
+       "axis_border_show": false,
+       "label_option": {
+        "rotate": 0.0
+       },
+       "show_symbol": false,
+       "line_interpolation": "smooth",
+       "legend_width": {
+        "unit": "px"
+       },
+       "base_map": {
+        "type": "osm"
+       },
+       "map_type": {
+        "type": "world"
+       },
+       "map_view": {
+        "zoom": 1.0,
+        "lat": 0.0,
+        "lng": 0.0
+       },
+       "map_symbol_style": {
+        "size": "by Value",
+        "size_by_value": {
+         "min": 1.0,
+         "max": 100.0
+        },
+        "size_fixed": 2.0
+       },
+       "drilldown": [],
+       "mark_line": [],
+       "override_config": [],
+       "connect_nulls": false,
+       "no_value_replacement": "",
+       "wrap_table_cells": false,
+       "table_transpose": false,
+       "table_dynamic_columns": false,
+       "mappings": [],
+       "color": {
+        "mode": "palette-classic-by-series",
+        "fixedColor": [
+         "#53ca53"
+        ],
+        "seriesBy": "last"
+       },
+       "trellis": {
+        "layout": null,
+        "num_of_columns": 1
+       }
+      },
+      "queryType": "sql",
+      "queries": [
+       {
+        "query": "WITH latest AS (\n  SELECT session_id, MAX(captured_at) AS cap\n  FROM claude_insights_sessions\n  WHERE service_user IN (${developer}) AND service_user <> 'schema_seed'\n  GROUP BY session_id\n),\nsessions AS (\n  SELECT s.* FROM claude_insights_sessions s\n  JOIN latest l ON l.session_id = s.session_id AND l.cap = s.captured_at\n)\nSELECT ROUND(100.0 * SUM(CASE WHEN COALESCE(files_modified, 0) > 0 AND COALESCE(git_commits, 0) = 0\n                          THEN 1 ELSE 0 END)\n             / NULLIF(SUM(CASE WHEN COALESCE(files_modified, 0) > 0 THEN 1 ELSE 0 END), 0), 1) AS \"y_axis_1\"\nFROM sessions",
+        "vrlFunctionQuery": "",
+        "customQuery": true,
+        "fields": {
+         "stream": "claude_insights_sessions",
+         "stream_type": "logs",
+         "x": [],
+         "y": [
+          {
+           "label": "value",
+           "alias": "y_axis_1",
+           "column": "value",
+           "type": "custom",
+           "color": "#5960b2",
+           "args": [],
+           "isDerived": false,
+           "treatAsNonTimestamp": false,
+           "showFieldAsJson": false,
+           "functionName": "sum"
+          }
+         ],
+         "z": [],
+         "breakdown": [],
+         "filter": {
+          "filterType": "group",
+          "logicalOperator": "AND",
+          "conditions": []
+         }
+        },
+        "config": {
+         "promql_legend": "",
+         "layer_type": "scatter",
+         "weight_fixed": 1.0,
+         "limit": 0.0,
+         "min": 0.0,
+         "max": 100.0,
+         "time_shift": []
+        }
+       }
+      ],
+      "layout": {
+       "x": 144,
+       "y": 0,
+       "w": 48,
+       "h": 5,
+       "i": 4
+      },
+      "htmlContent": "",
+      "markdownContent": "",
+      "customChartContent": ""
+     },
+     {
+      "id": "cli_findings",
+      "type": "table",
+      "title": "What to change, ranked",
+      "description": "Every finding is a threshold over the columns `/insights` already computed -- no model call of this script's own, nothing scheduled beyond running `/insights` and `claude_insights_export.py` yourselves, and the SQL is readable in the panel editor. A rule that is not over threshold returns no row, so an empty panel means there is nothing to act on. Severity is judgement, not measured risk: `high` is worth a look this week, `review` is worth knowing about. Grouped by developer, so it reads the same for one person as for many. Deduplicated by keeping only the newest row per `session_id` (highest `captured_at`), because a re-run of `claude_insights_export.py` after `/insights` re-analyses a session sends a full replacement row rather than a delta, and OpenObserve has no upsert -- see the export script's module docstring.",
+      "config": {
+       "show_legends": true,
+       "legends_position": null,
+       "unit": "numbers",
+       "decimals": 1,
+       "line_thickness": 1.5,
+       "top_results_others": false,
+       "axis_border_show": false,
+       "label_option": {
+        "rotate": 0.0
+       },
+       "show_symbol": false,
+       "line_interpolation": "smooth",
+       "legend_width": {
+        "unit": "px"
+       },
+       "base_map": {
+        "type": "osm"
+       },
+       "map_type": {
+        "type": "world"
+       },
+       "map_view": {
+        "zoom": 1.0,
+        "lat": 0.0,
+        "lng": 0.0
+       },
+       "map_symbol_style": {
+        "size": "by Value",
+        "size_by_value": {
+         "min": 1.0,
+         "max": 100.0
+        },
+        "size_fixed": 2.0
+       },
+       "drilldown": [],
+       "mark_line": [],
+       "override_config": [],
+       "connect_nulls": false,
+       "no_value_replacement": "",
+       "wrap_table_cells": false,
+       "table_transpose": false,
+       "table_dynamic_columns": false,
+       "mappings": [],
+       "color": {
+        "mode": "palette-classic-by-series",
+        "fixedColor": [
+         "#53ca53"
+        ],
+        "seriesBy": "last"
+       },
+       "trellis": {
+        "layout": null,
+        "num_of_columns": 1
+       }
+      },
+      "queryType": "sql",
+      "queries": [
+       {
+        "query": "WITH latest AS (\n  SELECT session_id, MAX(captured_at) AS cap\n  FROM claude_insights_sessions\n  WHERE service_user IN (${developer}) AND service_user <> 'schema_seed'\n  GROUP BY session_id\n),\nsessions AS (\n  SELECT s.* FROM claude_insights_sessions s\n  JOIN latest l ON l.session_id = s.session_id AND l.cap = s.captured_at\n),\nper_dev AS (\n  SELECT service_user AS developer,\n         COUNT(*) AS n,\n         SUM(CASE WHEN satisfaction_negative > satisfaction_positive THEN 1 ELSE 0 END) AS dissatisfied,\n         SUM(CASE WHEN satisfaction_positive IS NOT NULL OR satisfaction_negative IS NOT NULL\n                  THEN 1 ELSE 0 END) AS judged,\n         SUM(COALESCE(tool_errors, 0)) AS tool_errors,\n         SUM(COALESCE(user_message_count, 0)) AS messages,\n         SUM(COALESCE(user_interruptions, 0)) AS interruptions,\n         SUM(CASE WHEN COALESCE(files_modified, 0) > 0 AND COALESCE(git_commits, 0) = 0\n                  THEN 1 ELSE 0 END) AS uncommitted,\n         SUM(CASE WHEN COALESCE(files_modified, 0) > 0 THEN 1 ELSE 0 END) AS edited,\n         SUM(COALESCE(uses_task_agent, 0)) AS agent_sessions,\n         SUM(COALESCE(uses_mcp, 0)) AS mcp_sessions\n  FROM sessions GROUP BY 1),\nfriction AS (\n  SELECT service_user AS developer, primary_friction, COUNT(*) AS n\n  FROM sessions WHERE primary_friction IS NOT NULL GROUP BY 1, 2),\ntop_friction_count AS (SELECT developer, MAX(n) AS n FROM friction GROUP BY 1),\ntop_friction AS (\n  -- Max-then-rejoin, not ROW_NUMBER() OVER (PARTITION BY ...): a partitioned window is rejected\n  -- here with \"Expects PARTITION BY expression to be ordered\".\n  SELECT f.developer AS developer, MAX(f.primary_friction) AS friction, t.n AS n\n  FROM friction f JOIN top_friction_count t ON t.developer = f.developer AND t.n = f.n\n  GROUP BY f.developer, t.n)\nSELECT p.developer AS \"developer\", '1 high' AS \"severity\", 'Sessions ending dissatisfied' AS \"signal\",\n       p.dissatisfied || ' of ' || p.judged || ' judged sessions (' ||\n       ROUND(100.0 * p.dissatisfied / NULLIF(p.judged, 0), 0) || '%)' AS \"measured\",\n       'Read the friction detail on the dissatisfied sessions below before the pattern repeats.' AS \"what_to_do\"\nFROM per_dev p\nWHERE p.judged >= 5 AND 100.0 * p.dissatisfied / NULLIF(p.judged, 0) > 20\nUNION ALL\nSELECT p.developer, '1 high', 'Tool calls keep failing',\n       p.tool_errors || ' tool errors across ' || p.n || ' sessions (' ||\n       ROUND(1.0 * p.tool_errors / NULLIF(p.n, 0), 1) || ' per session)',\n       'A tool that fails this often is worth checking directly rather than having the agent retry it every session.'\nFROM per_dev p\nWHERE p.n >= 5 AND 1.0 * p.tool_errors / NULLIF(p.n, 0) > 1\nUNION ALL\nSELECT p.developer, '2 medium', 'Frequent interruptions',\n       p.interruptions || ' interruptions across ' || p.messages || ' prompts (' ||\n       ROUND(100.0 * p.interruptions / NULLIF(p.messages, 0), 0) || '%)',\n       'Stopping the agent mid-task usually means the ask was underspecified. A short plan up front costs less than the interruption.'\nFROM per_dev p\nWHERE p.messages >= 20 AND 100.0 * p.interruptions / NULLIF(p.messages, 0) > 10\nUNION ALL\nSELECT p.developer, '2 medium', 'Edits made without a commit',\n       p.uncommitted || ' of ' || p.edited || ' sessions that touched files (' ||\n       ROUND(100.0 * p.uncommitted / NULLIF(p.edited, 0), 0) || '%)',\n       'Work sitting uncommitted at the end of a session is not visible to git log and is one session away from being lost.'\nFROM per_dev p\nWHERE p.edited >= 5 AND 100.0 * p.uncommitted / NULLIF(p.edited, 0) > 50\nUNION ALL\nSELECT p.developer, '3 review', 'One friction pattern keeps recurring',\n       t.n || ' of ' || p.judged || ' judged sessions logged \"' || t.friction || '\"',\n       'The same friction repeating is usually worth fixing once rather than working around every time.'\nFROM per_dev p JOIN top_friction t ON t.developer = p.developer\nWHERE p.judged >= 5 AND 100.0 * t.n / NULLIF(p.judged, 0) > 25\nUNION ALL\nSELECT p.developer, '3 review', 'Sub-agents and MCP tools barely used',\n       p.agent_sessions || ' of ' || p.n || ' sessions used a sub-agent, ' || p.mcp_sessions || ' used MCP',\n       'Not wrong, but delegation and MCP tools are often the cheaper way to do the same task -- worth trying once.'\nFROM per_dev p\nWHERE p.n >= 10 AND p.agent_sessions = 0 AND p.mcp_sessions = 0\nORDER BY \"severity\", \"developer\"",
+        "vrlFunctionQuery": "",
+        "customQuery": true,
+        "fields": {
+         "stream": "claude_insights_sessions",
+         "stream_type": "logs",
+         "x": [
+          {
+           "label": "Developer",
+           "alias": "developer",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "developer",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Severity",
+           "alias": "severity",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "severity",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "What it is",
+           "alias": "signal",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "signal",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Measured",
+           "alias": "measured",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "measured",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "What to do about it",
+           "alias": "what_to_do",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "what_to_do",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          }
+         ],
+         "y": [],
+         "z": [],
+         "breakdown": [],
+         "filter": {
+          "filterType": "group",
+          "logicalOperator": "AND",
+          "conditions": []
+         }
+        },
+        "config": {
+         "promql_legend": "",
+         "layer_type": "scatter",
+         "weight_fixed": 1.0,
+         "limit": 0.0,
+         "min": 0.0,
+         "max": 100.0,
+         "time_shift": []
+        }
+       }
+      ],
+      "layout": {
+       "x": 0,
+       "y": 5,
+       "w": 192,
+       "h": 24,
+       "i": 5
+      },
+      "htmlContent": "",
+      "markdownContent": "",
+      "customChartContent": ""
+     },
+     {
+      "id": "cli_over_time",
+      "type": "stacked",
+      "title": "Sessions over time, by outcome",
+      "description": "One bar per day sessions started (`_timestamp` is the session's own `start_time`, not when this script ran), split by `outcome` -- the model's own verdict on whether the session's goal was reached. Sessions `/insights` never sent for judgement show as 'not yet judged' rather than being dropped. Deduplicated by keeping only the newest row per `session_id` (highest `captured_at`), because a re-run of `claude_insights_export.py` after `/insights` re-analyses a session sends a full replacement row rather than a delta, and OpenObserve has no upsert -- see the export script's module docstring.",
+      "config": {
+       "show_legends": true,
+       "legends_position": null,
+       "unit": "numbers",
+       "decimals": 1,
+       "line_thickness": 1.5,
+       "top_results_others": false,
+       "axis_border_show": false,
+       "label_option": {
+        "rotate": 0.0
+       },
+       "show_symbol": false,
+       "line_interpolation": "smooth",
+       "legend_width": {
+        "unit": "px"
+       },
+       "base_map": {
+        "type": "osm"
+       },
+       "map_type": {
+        "type": "world"
+       },
+       "map_view": {
+        "zoom": 1.0,
+        "lat": 0.0,
+        "lng": 0.0
+       },
+       "map_symbol_style": {
+        "size": "by Value",
+        "size_by_value": {
+         "min": 1.0,
+         "max": 100.0
+        },
+        "size_fixed": 2.0
+       },
+       "drilldown": [],
+       "mark_line": [],
+       "override_config": [],
+       "connect_nulls": false,
+       "no_value_replacement": "",
+       "wrap_table_cells": false,
+       "table_transpose": false,
+       "table_dynamic_columns": false,
+       "mappings": [],
+       "color": {
+        "mode": "palette-classic-by-series",
+        "fixedColor": [
+         "#53ca53"
+        ],
+        "seriesBy": "last"
+       },
+       "trellis": {
+        "layout": null,
+        "num_of_columns": 1
+       }
+      },
+      "queryType": "sql",
+      "queries": [
+       {
+        "query": "WITH latest AS (\n  SELECT session_id, MAX(captured_at) AS cap\n  FROM claude_insights_sessions\n  WHERE service_user IN (${developer}) AND service_user <> 'schema_seed'\n  GROUP BY session_id\n),\nsessions AS (\n  SELECT s.* FROM claude_insights_sessions s\n  JOIN latest l ON l.session_id = s.session_id AND l.cap = s.captured_at\n)\nSELECT date_trunc('day', to_timestamp_micros(_timestamp)) AS \"x_axis_1\",\n       COUNT(*) AS \"y_axis_1\",\n       COALESCE(outcome, 'not yet judged') AS \"breakdown_1\"\nFROM sessions\nGROUP BY x_axis_1, breakdown_1\nORDER BY x_axis_1",
+        "vrlFunctionQuery": "",
+        "customQuery": true,
+        "fields": {
+         "stream": "claude_insights_sessions",
+         "stream_type": "logs",
+         "x": [],
+         "y": [
+          {
+           "label": "Value",
+           "alias": "y_axis_1",
+           "column": "value",
+           "type": "custom",
+           "color": "#5960b2",
+           "args": [],
+           "isDerived": false,
+           "treatAsNonTimestamp": false,
+           "showFieldAsJson": false,
+           "functionName": "sum"
+          }
+         ],
+         "z": [],
+         "breakdown": [
+          {
+           "label": "Series",
+           "alias": "breakdown_1",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "breakdown_1",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          }
+         ],
+         "filter": {
+          "filterType": "group",
+          "logicalOperator": "AND",
+          "conditions": []
+         }
+        },
+        "config": {
+         "promql_legend": "",
+         "layer_type": "scatter",
+         "weight_fixed": 1.0,
+         "limit": 0.0,
+         "min": 0.0,
+         "max": 100.0,
+         "time_shift": []
+        }
+       }
+      ],
+      "layout": {
+       "x": 0,
+       "y": 29,
+       "w": 192,
+       "h": 20,
+       "i": 6
+      },
+      "htmlContent": "",
+      "markdownContent": "",
+      "customChartContent": ""
+     },
+     {
+      "id": "cli_by_dev",
+      "type": "table",
+      "title": "Every developer",
+      "description": "Sessions, average length, dissatisfaction rate and tool errors per developer, plus whether they have tried delegation (sub-agents) or MCP tools at all. The table a lead reads first. Deduplicated by keeping only the newest row per `session_id` (highest `captured_at`), because a re-run of `claude_insights_export.py` after `/insights` re-analyses a session sends a full replacement row rather than a delta, and OpenObserve has no upsert -- see the export script's module docstring.",
+      "config": {
+       "show_legends": true,
+       "legends_position": null,
+       "unit": "numbers",
+       "decimals": 1,
+       "line_thickness": 1.5,
+       "top_results_others": false,
+       "axis_border_show": false,
+       "label_option": {
+        "rotate": 0.0
+       },
+       "show_symbol": false,
+       "line_interpolation": "smooth",
+       "legend_width": {
+        "unit": "px"
+       },
+       "base_map": {
+        "type": "osm"
+       },
+       "map_type": {
+        "type": "world"
+       },
+       "map_view": {
+        "zoom": 1.0,
+        "lat": 0.0,
+        "lng": 0.0
+       },
+       "map_symbol_style": {
+        "size": "by Value",
+        "size_by_value": {
+         "min": 1.0,
+         "max": 100.0
+        },
+        "size_fixed": 2.0
+       },
+       "drilldown": [],
+       "mark_line": [],
+       "override_config": [],
+       "connect_nulls": false,
+       "no_value_replacement": "",
+       "wrap_table_cells": false,
+       "table_transpose": false,
+       "table_dynamic_columns": false,
+       "mappings": [],
+       "color": {
+        "mode": "palette-classic-by-series",
+        "fixedColor": [
+         "#53ca53"
+        ],
+        "seriesBy": "last"
+       },
+       "trellis": {
+        "layout": null,
+        "num_of_columns": 1
+       }
+      },
+      "queryType": "sql",
+      "queries": [
+       {
+        "query": "WITH latest AS (\n  SELECT session_id, MAX(captured_at) AS cap\n  FROM claude_insights_sessions\n  WHERE service_user IN (${developer}) AND service_user <> 'schema_seed'\n  GROUP BY session_id\n),\nsessions AS (\n  SELECT s.* FROM claude_insights_sessions s\n  JOIN latest l ON l.session_id = s.session_id AND l.cap = s.captured_at\n)\nSELECT service_user AS developer,\n       COUNT(*) AS sessions,\n       ROUND(AVG(duration_minutes), 1) AS avg_minutes,\n       SUM(CASE WHEN satisfaction_positive IS NOT NULL OR satisfaction_negative IS NOT NULL\n                THEN 1 ELSE 0 END) AS judged_sessions,\n       ROUND(100.0 * SUM(CASE WHEN satisfaction_negative > satisfaction_positive THEN 1 ELSE 0 END)\n             / NULLIF(SUM(CASE WHEN satisfaction_positive IS NOT NULL OR satisfaction_negative IS NOT NULL\n                              THEN 1 ELSE 0 END), 0), 1) AS dissatisfaction_percent,\n       SUM(COALESCE(tool_errors, 0)) AS tool_errors,\n       SUM(COALESCE(git_commits, 0)) AS git_commits,\n       SUM(COALESCE(uses_task_agent, 0)) AS sessions_using_a_subagent,\n       SUM(COALESCE(uses_mcp, 0)) AS sessions_using_mcp\nFROM sessions\nGROUP BY developer\nORDER BY sessions DESC",
+        "vrlFunctionQuery": "",
+        "customQuery": true,
+        "fields": {
+         "stream": "claude_insights_sessions",
+         "stream_type": "logs",
+         "x": [
+          {
+           "label": "Developer",
+           "alias": "developer",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "developer",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Sessions",
+           "alias": "sessions",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "sessions",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Avg minutes",
+           "alias": "avg_minutes",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "avg_minutes",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Judged sessions",
+           "alias": "judged_sessions",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "judged_sessions",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Dissatisfaction %",
+           "alias": "dissatisfaction_percent",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "dissatisfaction_percent",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Tool errors",
+           "alias": "tool_errors",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "tool_errors",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Git commits",
+           "alias": "git_commits",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "git_commits",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Used a sub-agent",
+           "alias": "sessions_using_a_subagent",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "sessions_using_a_subagent",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Used MCP",
+           "alias": "sessions_using_mcp",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "sessions_using_mcp",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          }
+         ],
+         "y": [],
+         "z": [],
+         "breakdown": [],
+         "filter": {
+          "filterType": "group",
+          "logicalOperator": "AND",
+          "conditions": []
+         }
+        },
+        "config": {
+         "promql_legend": "",
+         "layer_type": "scatter",
+         "weight_fixed": 1.0,
+         "limit": 0.0,
+         "min": 0.0,
+         "max": 100.0,
+         "time_shift": []
+        }
+       }
+      ],
+      "layout": {
+       "x": 0,
+       "y": 49,
+       "w": 192,
+       "h": 20,
+       "i": 7
+      },
+      "htmlContent": "",
+      "markdownContent": "",
+      "customChartContent": ""
+     },
+     {
+      "id": "cli_goals",
+      "type": "table",
+      "title": "What sessions were for",
+      "description": "One row per `primary_goal_category` -- the most-represented key in the model's own `goal_categories` map for that session, picked by `claude_insights_export.derive_row`. Only covers judged sessions; a session `/insights` never analysed has no goal category and is not in this table. Deduplicated by keeping only the newest row per `session_id` (highest `captured_at`), because a re-run of `claude_insights_export.py` after `/insights` re-analyses a session sends a full replacement row rather than a delta, and OpenObserve has no upsert -- see the export script's module docstring.",
+      "config": {
+       "show_legends": true,
+       "legends_position": null,
+       "unit": "numbers",
+       "decimals": 1,
+       "line_thickness": 1.5,
+       "top_results_others": false,
+       "axis_border_show": false,
+       "label_option": {
+        "rotate": 0.0
+       },
+       "show_symbol": false,
+       "line_interpolation": "smooth",
+       "legend_width": {
+        "unit": "px"
+       },
+       "base_map": {
+        "type": "osm"
+       },
+       "map_type": {
+        "type": "world"
+       },
+       "map_view": {
+        "zoom": 1.0,
+        "lat": 0.0,
+        "lng": 0.0
+       },
+       "map_symbol_style": {
+        "size": "by Value",
+        "size_by_value": {
+         "min": 1.0,
+         "max": 100.0
+        },
+        "size_fixed": 2.0
+       },
+       "drilldown": [],
+       "mark_line": [],
+       "override_config": [],
+       "connect_nulls": false,
+       "no_value_replacement": "",
+       "wrap_table_cells": false,
+       "table_transpose": false,
+       "table_dynamic_columns": false,
+       "mappings": [],
+       "color": {
+        "mode": "palette-classic-by-series",
+        "fixedColor": [
+         "#53ca53"
+        ],
+        "seriesBy": "last"
+       },
+       "trellis": {
+        "layout": null,
+        "num_of_columns": 1
+       }
+      },
+      "queryType": "sql",
+      "queries": [
+       {
+        "query": "WITH latest AS (\n  SELECT session_id, MAX(captured_at) AS cap\n  FROM claude_insights_sessions\n  WHERE service_user IN (${developer}) AND service_user <> 'schema_seed'\n  GROUP BY session_id\n),\nsessions AS (\n  SELECT s.* FROM claude_insights_sessions s\n  JOIN latest l ON l.session_id = s.session_id AND l.cap = s.captured_at\n)\nSELECT primary_goal_category AS goal_category,\n       COUNT(*) AS sessions,\n       ROUND(AVG(duration_minutes), 1) AS avg_minutes,\n       ROUND(100.0 * SUM(CASE WHEN satisfaction_negative > satisfaction_positive THEN 1 ELSE 0 END)\n             / NULLIF(COUNT(*), 0), 1) AS dissatisfaction_percent\nFROM sessions\nWHERE primary_goal_category IS NOT NULL\nGROUP BY goal_category\nORDER BY sessions DESC",
+        "vrlFunctionQuery": "",
+        "customQuery": true,
+        "fields": {
+         "stream": "claude_insights_sessions",
+         "stream_type": "logs",
+         "x": [
+          {
+           "label": "Goal category",
+           "alias": "goal_category",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "goal_category",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Sessions",
+           "alias": "sessions",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "sessions",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Avg minutes",
+           "alias": "avg_minutes",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "avg_minutes",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Dissatisfaction %",
+           "alias": "dissatisfaction_percent",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "dissatisfaction_percent",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          }
+         ],
+         "y": [],
+         "z": [],
+         "breakdown": [],
+         "filter": {
+          "filterType": "group",
+          "logicalOperator": "AND",
+          "conditions": []
+         }
+        },
+        "config": {
+         "promql_legend": "",
+         "layer_type": "scatter",
+         "weight_fixed": 1.0,
+         "limit": 0.0,
+         "min": 0.0,
+         "max": 100.0,
+         "time_shift": []
+        }
+       }
+      ],
+      "layout": {
+       "x": 0,
+       "y": 69,
+       "w": 96,
+       "h": 18,
+       "i": 8
+      },
+      "htmlContent": "",
+      "markdownContent": "",
+      "customChartContent": ""
+     },
+     {
+      "id": "cli_friction",
+      "type": "table",
+      "title": "Friction, by kind",
+      "description": "One row per `primary_friction` the model logged, with one example detail per kind -- picked by `MAX(friction_detail)`, so it is one real example rather than the most common wording, not a summary of the group. Empty if no judged session in range hit friction at all, which is a reading worth taking at face value. Deduplicated by keeping only the newest row per `session_id` (highest `captured_at`), because a re-run of `claude_insights_export.py` after `/insights` re-analyses a session sends a full replacement row rather than a delta, and OpenObserve has no upsert -- see the export script's module docstring.",
+      "config": {
+       "show_legends": true,
+       "legends_position": null,
+       "unit": "numbers",
+       "decimals": 1,
+       "line_thickness": 1.5,
+       "top_results_others": false,
+       "axis_border_show": false,
+       "label_option": {
+        "rotate": 0.0
+       },
+       "show_symbol": false,
+       "line_interpolation": "smooth",
+       "legend_width": {
+        "unit": "px"
+       },
+       "base_map": {
+        "type": "osm"
+       },
+       "map_type": {
+        "type": "world"
+       },
+       "map_view": {
+        "zoom": 1.0,
+        "lat": 0.0,
+        "lng": 0.0
+       },
+       "map_symbol_style": {
+        "size": "by Value",
+        "size_by_value": {
+         "min": 1.0,
+         "max": 100.0
+        },
+        "size_fixed": 2.0
+       },
+       "drilldown": [],
+       "mark_line": [],
+       "override_config": [],
+       "connect_nulls": false,
+       "no_value_replacement": "",
+       "wrap_table_cells": false,
+       "table_transpose": false,
+       "table_dynamic_columns": false,
+       "mappings": [],
+       "color": {
+        "mode": "palette-classic-by-series",
+        "fixedColor": [
+         "#53ca53"
+        ],
+        "seriesBy": "last"
+       },
+       "trellis": {
+        "layout": null,
+        "num_of_columns": 1
+       }
+      },
+      "queryType": "sql",
+      "queries": [
+       {
+        "query": "WITH latest AS (\n  SELECT session_id, MAX(captured_at) AS cap\n  FROM claude_insights_sessions\n  WHERE service_user IN (${developer}) AND service_user <> 'schema_seed'\n  GROUP BY session_id\n),\nsessions AS (\n  SELECT s.* FROM claude_insights_sessions s\n  JOIN latest l ON l.session_id = s.session_id AND l.cap = s.captured_at\n)\nSELECT primary_friction AS friction,\n       COUNT(*) AS sessions,\n       MAX(friction_detail) AS example\nFROM sessions\nWHERE primary_friction IS NOT NULL\nGROUP BY friction\nORDER BY sessions DESC",
+        "vrlFunctionQuery": "",
+        "customQuery": true,
+        "fields": {
+         "stream": "claude_insights_sessions",
+         "stream_type": "logs",
+         "x": [
+          {
+           "label": "Friction",
+           "alias": "friction",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "friction",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Sessions",
+           "alias": "sessions",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "sessions",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Example",
+           "alias": "example",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "example",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          }
+         ],
+         "y": [],
+         "z": [],
+         "breakdown": [],
+         "filter": {
+          "filterType": "group",
+          "logicalOperator": "AND",
+          "conditions": []
+         }
+        },
+        "config": {
+         "promql_legend": "",
+         "layer_type": "scatter",
+         "weight_fixed": 1.0,
+         "limit": 0.0,
+         "min": 0.0,
+         "max": 100.0,
+         "time_shift": []
+        }
+       }
+      ],
+      "layout": {
+       "x": 96,
+       "y": 69,
+       "w": 96,
+       "h": 18,
+       "i": 9
+      },
+      "htmlContent": "",
+      "markdownContent": "",
+      "customChartContent": ""
+     },
+     {
+      "id": "cli_latest",
+      "type": "table",
+      "title": "Latest sessions, most recent first",
+      "description": "One row per session, newest `start_time` first: what it was for, how it went, and the model's own one-line summary where a judgement exists. `brief_summary` is prose the model wrote about someone's work -- read a row before putting this panel where people other than that developer can see it, the same caution the chronicle dashboard's advice panels carry. Deduplicated by keeping only the newest row per `session_id` (highest `captured_at`), because a re-run of `claude_insights_export.py` after `/insights` re-analyses a session sends a full replacement row rather than a delta, and OpenObserve has no upsert -- see the export script's module docstring.",
+      "config": {
+       "show_legends": true,
+       "legends_position": null,
+       "unit": "numbers",
+       "decimals": 1,
+       "line_thickness": 1.5,
+       "top_results_others": false,
+       "axis_border_show": false,
+       "label_option": {
+        "rotate": 0.0
+       },
+       "show_symbol": false,
+       "line_interpolation": "smooth",
+       "legend_width": {
+        "unit": "px"
+       },
+       "base_map": {
+        "type": "osm"
+       },
+       "map_type": {
+        "type": "world"
+       },
+       "map_view": {
+        "zoom": 1.0,
+        "lat": 0.0,
+        "lng": 0.0
+       },
+       "map_symbol_style": {
+        "size": "by Value",
+        "size_by_value": {
+         "min": 1.0,
+         "max": 100.0
+        },
+        "size_fixed": 2.0
+       },
+       "drilldown": [],
+       "mark_line": [],
+       "override_config": [],
+       "connect_nulls": false,
+       "no_value_replacement": "",
+       "wrap_table_cells": false,
+       "table_transpose": false,
+       "table_dynamic_columns": false,
+       "mappings": [],
+       "color": {
+        "mode": "palette-classic-by-series",
+        "fixedColor": [
+         "#53ca53"
+        ],
+        "seriesBy": "last"
+       },
+       "trellis": {
+        "layout": null,
+        "num_of_columns": 1
+       }
+      },
+      "queryType": "sql",
+      "queries": [
+       {
+        "query": "WITH latest AS (\n  SELECT session_id, MAX(captured_at) AS cap\n  FROM claude_insights_sessions\n  WHERE service_user IN (${developer}) AND service_user <> 'schema_seed'\n  GROUP BY session_id\n),\nsessions AS (\n  SELECT s.* FROM claude_insights_sessions s\n  JOIN latest l ON l.session_id = s.session_id AND l.cap = s.captured_at\n)\nSELECT service_user AS developer,\n       to_char(to_timestamp_micros(_timestamp), '%Y-%m-%d %H:%M') AS started,\n       project_path,\n       duration_minutes,\n       COALESCE(outcome, 'not judged') AS outcome,\n       COALESCE(claude_helpfulness, '') AS helpfulness,\n       COALESCE(brief_summary, first_prompt, '') AS summary\nFROM sessions\nORDER BY _timestamp DESC\nLIMIT 60",
+        "vrlFunctionQuery": "",
+        "customQuery": true,
+        "fields": {
+         "stream": "claude_insights_sessions",
+         "stream_type": "logs",
+         "x": [
+          {
+           "label": "Developer",
+           "alias": "developer",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "developer",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Started",
+           "alias": "started",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "started",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Project",
+           "alias": "project_path",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "project_path",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Minutes",
+           "alias": "duration_minutes",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "duration_minutes",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Outcome",
+           "alias": "outcome",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "outcome",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Helpfulness",
+           "alias": "helpfulness",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "helpfulness",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          },
+          {
+           "label": "Summary",
+           "alias": "summary",
+           "type": "build",
+           "color": null,
+           "args": [
+            {
+             "type": "field",
+             "value": {
+              "field": "summary",
+              "streamAlias": null
+             }
+            }
+           ],
+           "isDerived": true,
+           "havingConditions": [],
+           "treatAsNonTimestamp": true,
+           "showFieldAsJson": false
+          }
+         ],
+         "y": [],
+         "z": [],
+         "breakdown": [],
+         "filter": {
+          "filterType": "group",
+          "logicalOperator": "AND",
+          "conditions": []
+         }
+        },
+        "config": {
+         "promql_legend": "",
+         "layer_type": "scatter",
+         "weight_fixed": 1.0,
+         "limit": 0.0,
+         "min": 0.0,
+         "max": 100.0,
+         "time_shift": []
+        }
+       }
+      ],
+      "layout": {
+       "x": 0,
+       "y": 87,
+       "w": 192,
+       "h": 22,
+       "i": 10
+      },
+      "htmlContent": "",
+      "markdownContent": "",
+      "customChartContent": ""
+     }
+    ]
+   }
+  ],
+  "variables": {
+   "list": [
+    {
+     "type": "query_values",
+     "name": "developer",
+     "label": "Developer",
+     "query_data": {
+      "stream_type": "logs",
+      "stream": "claude_insights_sessions",
+      "field": "service_user",
+      "max_record_size": null,
+      "filter": []
+     },
+     "value": "",
+     "options": [],
+     "multiSelect": true,
+     "hideOnDashboard": false,
+     "selectAllValueForMultiSelect": "all",
+     "escapeSingleQuotes": false
+    }
+   ],
+   "showDynamicFilters": false
+  },
+  "defaultDatetimeDuration": {
+   "type": "relative",
+   "relativeTimePeriod": "30d"
+  }
+ },
+ "version": 8
+}
