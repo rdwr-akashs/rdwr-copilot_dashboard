@@ -17,6 +17,12 @@
   fingerprint file above: chronicle rows are immutable and counted in thousands,
   so they are tracked by a high-water mark per source table (-ChronicleStatePath)
   which only advances on a batch OpenObserve accepted in full.
+
+  The same run also ships Claude Code's own usage cache into the
+  claude_insights_sessions stream (claude_insights_export.py), unless -NoClaude
+  is passed, so one scheduled task covers both assistants. It has its own
+  watermark file (-ClaudeStatePath) and, absent an override, reuses
+  -ChronicleBaseUrl/-ChronicleOrg since it talks to the same OpenObserve server.
 #>
 [CmdletBinding()]
 param(
@@ -36,6 +42,12 @@ param(
   [string]$ChronicleBaseUrl,
   # The '/api/<org>/' segment of every chronicle stream URL.
   [string]$ChronicleOrg,
+  [switch]$NoClaude,
+  [string]$ClaudeDir,
+  [string]$ClaudeBaseUrl,
+  [string]$ClaudeOrg,
+  [string]$ClaudeUser,
+  [string]$ClaudeStatePath = (Join-Path $env:USERPROFILE '.copilot-dashboard\claude_insights_state.json'),
   # Full per-stream overrides, e.g. -ChronicleStreamUrls @{ copilot_chronicle_turns =
   # 'https://oo.example.com/api/team/turns/_json' }. A stream left out keeps the base + org
   # form. Also settable as a "ChronicleStreamUrls" object in agent-urls.json, which is how the
@@ -176,6 +188,19 @@ try {
         # replay. Said out loud so an empty chronicle dashboard has an explanation in the log.
         Write-Log "Chronicle: no store at $ChronicleDb, skipping (the Copilot CLI has not run here)" 'WARN'
       }
+    }
+    if (-not $NoClaude) {
+      Write-Log 'Claude: shipping Claude Code usage cache into claude_insights_sessions'
+      $generatorArguments += @(
+        '--claude'
+        '--claude-state'; $ClaudeStatePath
+      )
+      $claudeBase = if ($ClaudeBaseUrl) { $ClaudeBaseUrl } else { $ChronicleBaseUrl }
+      $claudeOrgResolved = if ($ClaudeOrg) { $ClaudeOrg } else { $ChronicleOrg }
+      if ($claudeBase) { $generatorArguments += @('--claude-base-url', $claudeBase) }
+      if ($claudeOrgResolved) { $generatorArguments += @('--claude-org', $claudeOrgResolved) }
+      if ($ClaudeDir) { $generatorArguments += @('--claude-dir', $ClaudeDir) }
+      if ($ClaudeUser) { $generatorArguments += @('--claude-user', $ClaudeUser) }
     }
     $output = & $Python '.\generate_dashboard.py' $generatorArguments 2>&1
     $code = $LASTEXITCODE

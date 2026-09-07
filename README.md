@@ -229,12 +229,14 @@ the watermark does not advance over them.
 
 ### Through the agent, on a schedule
 
-`agent/openobserve-agent.ps1` runs the chronicle export alongside the insights export, so the
-existing `CopilotDashboardOpenObserve` scheduled task covers both:
+`agent/openobserve-agent.ps1` runs the chronicle export and the Claude Code insights export
+alongside the Copilot insights export, so the one `CopilotDashboardOpenObserve` scheduled task
+covers all three:
 
 ```powershell
 .\agent\install-openobserve-agent.ps1 -IntervalMinutes 60 -ChronicleSince 2026-07-09
-.\agent\install-openobserve-agent.ps1 -NoChronicle          # insights only
+.\agent\install-openobserve-agent.ps1 -NoChronicle          # Copilot insights + Claude only
+.\agent\install-openobserve-agent.ps1 -NoClaude             # Copilot insights + chronicle only
 ```
 
 `-ChronicleDb` defaults to `~/.copilot/session-store.db`, `-ChronicleBaseUrl` and `-ChronicleOrg` to
@@ -244,6 +246,15 @@ directly — `--chronicle`, `--chronicle-since`, `--chronicle-db`, `--chronicle-
 `--chronicle-org`, `--chronicle-stream-url`, `--chronicle-state`, `--chronicle-stream`,
 `--chronicle-user`, `--chronicle-reset`, `--chronicle-dry-run` — and
 `$COPILOT_DASHBOARD_CHRONICLE=1` turns it on by default.
+
+Claude follows the same shape with a `-Claude*` prefix (`-ClaudeDir`, `-ClaudeBaseUrl`, `-ClaudeOrg`,
+`-ClaudeUser`) and the generator's `--claude`, `--claude-dir`, `--claude-base-url`, `--claude-org`,
+`--claude-endpoint`, `--claude-user`, `--claude-state`, `--claude-reset`, `--claude-dry-run`, with
+`$COPILOT_DASHBOARD_CLAUDE=1` to turn it on by default. `-ClaudeBaseUrl`/`-ClaudeOrg` default to
+`-ChronicleBaseUrl`/`-ChronicleOrg` when not set, since Claude ships to the same OpenObserve server;
+`-ClaudeStatePath` defaults to `~/.copilot-dashboard/claude_insights_state.json`, separate from
+chronicle's watermark. Claude reads `~/.claude/usage-data` directly rather than a per-source-table
+store, so there is no missing-store warning to log the way there is for chronicle.
 
 #### Where each stream is written
 

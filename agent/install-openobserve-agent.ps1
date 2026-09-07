@@ -35,6 +35,11 @@ param(
   [string]$ChronicleSince,
   [string]$ChronicleUser,
   [switch]$NoChronicle,
+  [string]$ClaudeDir,
+  [string]$ClaudeBaseUrl,
+  [string]$ClaudeOrg,
+  [string]$ClaudeUser,
+  [switch]$NoClaude,
   [int]$IntervalMinutes = 60,
   [switch]$Uninstall
 )
@@ -122,6 +127,11 @@ $arguments = @(
 if ($ChronicleSince) { $arguments += @('-ChronicleSince'; "`"$ChronicleSince`"") }
 if ($ChronicleUser) { $arguments += @('-ChronicleUser'; "`"$ChronicleUser`"") }
 if ($NoChronicle) { $arguments += '-NoChronicle' }
+if ($ClaudeDir) { $arguments += @('-ClaudeDir'; "`"$ClaudeDir`"") }
+if ($ClaudeBaseUrl) { $arguments += @('-ClaudeBaseUrl'; "`"$ClaudeBaseUrl`"") }
+if ($ClaudeOrg) { $arguments += @('-ClaudeOrg'; "`"$ClaudeOrg`"") }
+if ($ClaudeUser) { $arguments += @('-ClaudeUser'; "`"$ClaudeUser`"") }
+if ($NoClaude) { $arguments += '-NoClaude' }
 if ($OpenObserveInsecureTls) { $arguments += '-OpenObserveInsecureTls' }
 $arguments = $arguments -join ' '
 
@@ -144,11 +154,12 @@ $settings = New-ScheduledTaskSettingsSet `
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers `
-  -Settings $settings -Principal $principal -Description 'Generates the Copilot usage dashboard, ships new insights to OpenObserve, and replays new Copilot CLI chronicle history into the copilot_chronicle_* streams.' -Force | Out-Null
+  -Settings $settings -Principal $principal -Description 'Generates the Copilot usage dashboard, ships new insights to OpenObserve, replays new Copilot CLI chronicle history into the copilot_chronicle_* streams, and ships Claude Code usage into claude_insights_sessions.' -Force | Out-Null
 
 Write-Host "Registered scheduled task '$TaskName' (every $IntervalMinutes minute(s) and at logon)."
 Write-Host "Insights stream:   $Url"
 Write-Host "Chronicle streams: $ChronicleBaseUrl/api/$ChronicleOrg/copilot_chronicle_{usage,costs,sessions,files,turns}/_json"
 Write-Host "Per-stream URL overrides: the 'ChronicleStreamUrls' object in $ConfigPath"
+Write-Host "Claude stream:     $(if ($ClaudeBaseUrl) { $ClaudeBaseUrl } else { $ChronicleBaseUrl })/api/$(if ($ClaudeOrg) { $ClaudeOrg } else { $ChronicleOrg })/claude_insights_sessions/_json$(if ($NoClaude) { ' (disabled: -NoClaude)' })"
 Write-Host "Run it now with: Start-ScheduledTask -TaskName $TaskName"
 Write-Host "Log file: $(Join-Path $credentialDir 'agent.log')"

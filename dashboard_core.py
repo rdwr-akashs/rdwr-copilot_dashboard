@@ -52,6 +52,7 @@ from premium_requests import load_config as load_premium_config, build_budget, g
 from insights_engine import build_insights_with_diagnostics
 from openobserve_export import export_insights as export_insights_to_openobserve
 from chronicle_export import export_chronicle
+from claude_insights_export import export_claude_insights
 from chronicle_view import (
   build_chronicle_payload,
   empty_chronicle_payload,
@@ -694,6 +695,15 @@ def write_dashboard(
   chronicle_user: str | None = None,
   chronicle_reset: bool = False,
   chronicle_dry_run: bool = False,
+  claude: bool = False,
+  claude_dir: str | None = None,
+  claude_base_url: str | None = None,
+  claude_org: str | None = None,
+  claude_endpoint: str | None = None,
+  claude_user: str | None = None,
+  claude_state_path: str | None = None,
+  claude_reset: bool = False,
+  claude_dry_run: bool = False,
 ) -> str:
     if chronicle:
       # Independent of the HTML below and of the insights export: this replays the Copilot CLI's
@@ -718,6 +728,28 @@ def write_dashboard(
         print(
           "Chronicle export failed: %s"
           % (chronicle_result.get("error") or "%d row(s) rejected" % chronicle_result.get("failed", 0)),
+          file=sys.stderr,
+        )
+    if claude:
+      # Independent of chronicle and the insights export below: ships Claude Code's own usage
+      # cache (~/.claude/usage-data) into claude_insights_sessions, which is what fills the
+      # Claude dashboard. Run alongside chronicle so one scheduled run covers both assistants.
+      claude_result = export_claude_insights(
+        cache_dir=claude_dir,
+        base_url=claude_base_url or chronicle_base_url,
+        org=claude_org or chronicle_org,
+        endpoint=claude_endpoint,
+        user=claude_user,
+        state_path=claude_state_path,
+        reset=claude_reset,
+        dry_run=claude_dry_run,
+        insecure_tls=openobserve_insecure_tls or None,
+        log=lambda message: print(f"claude: {message}", file=sys.stderr),
+      )
+      if not claude_result.get("ok"):
+        print(
+          "Claude insights export failed: %s"
+          % (claude_result.get("error") or "%d row(s) rejected" % claude_result.get("failed", 0)),
           file=sys.stderr,
         )
     app_data = compose_app_data(
@@ -994,6 +1026,66 @@ def main(argv: list[str] | None = None) -> None:
       default=False,
       help="Print what chronicle would send, send nothing, write no state.",
     )
+    parser.add_argument(
+      "--claude",
+      action="store_true",
+      default=_env_flag("COPILOT_DASHBOARD_CLAUDE"),
+      help=(
+        "Also ship Claude Code's own usage cache (claude_insights_export.py) into "
+        "claude_insights_sessions, which is what fills the Claude dashboard. Independent of "
+        "--chronicle and --openobserve. Credentials come from the same $OPENOBSERVE_USER / "
+        "$OPENOBSERVE_PASSWORD pair; base URL/org default to --chronicle-base-url/--chronicle-org "
+        "when not given their own."
+      ),
+    )
+    parser.add_argument(
+      "--claude-dir",
+      default=None,
+      help="Claude usage cache to read (default: ~/.claude/usage-data).",
+    )
+    parser.add_argument(
+      "--claude-base-url",
+      default=None,
+      help="OpenObserve base URL for the Claude stream (default: --chronicle-base-url).",
+    )
+    parser.add_argument(
+      "--claude-org",
+      default=None,
+      help="OpenObserve org for the Claude stream (default: --chronicle-org).",
+    )
+    parser.add_argument(
+      "--claude-endpoint",
+      default=None,
+      help="Full ingest URL for the Claude stream, overriding --claude-base-url/--claude-org.",
+    )
+    parser.add_argument(
+      "--claude-user",
+      default=None,
+      help=(
+        "Value written to service_user on Claude rows, which the dashboard's Developer filter "
+        "matches on. Default: $CLAUDE_USER, else the logged-in user."
+      ),
+    )
+    parser.add_argument(
+      "--claude-state",
+      default=None,
+      help=(
+        "Path to the Claude watermark file (default: $CLAUDE_INSIGHTS_STATE, else "
+        "~/.copilot-dashboard/claude_insights_state.json)."
+      ),
+    )
+    parser.add_argument(
+      "--claude-reset",
+      action="store_true",
+      default=False,
+      help="Ignore the Claude watermark and resend every session-meta file found.",
+    )
+    parser.add_argument(
+      "--claude-dry-run",
+      action="store_true",
+      default=False,
+      help="Print what Claude would send, send nothing, write no state.",
+    )
     args = parser.parse_args(argv)
 
     # Clamp workers between 1 and 64
@@ -1034,6 +1126,15 @@ def main(argv: list[str] | None = None) -> None:
       chronicle_user=args.chronicle_user,
       chronicle_reset=bool(args.chronicle_reset),
       chronicle_dry_run=bool(args.chronicle_dry_run),
+      claude=bool(args.claude),
+      claude_dir=args.claude_dir,
+      claude_base_url=args.claude_base_url,
+      claude_org=args.claude_org,
+      claude_endpoint=args.claude_endpoint,
+      claude_user=args.claude_user,
+      claude_state_path=args.claude_state,
+      claude_reset=bool(args.claude_reset),
+      claude_dry_run=bool(args.claude_dry_run),
     )
     print(f"Dashboard written to: {output_path}", file=sys.stderr)
     print(output_path)
