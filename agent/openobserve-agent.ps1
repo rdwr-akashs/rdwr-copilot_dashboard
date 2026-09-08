@@ -73,13 +73,13 @@ $ErrorActionPreference = 'Stop'
 
 # Fallback defaults if -ConfigPath is missing/unreadable or lacks a key.
 $urlDefaults = @{
-  OpenObserveUrl = 'https://localhost:5080/api/default/insights/_json'
+  OpenObserveUrl = 'https://localhost/api/default/insights/_json'
   # Plain http, unlike the insights default above: this is what a stock OpenObserve container
   # actually listens for. An https URL against it fails the handshake rather than returning an
   # error a log line could explain. Override in agent-urls.json for a host with TLS.
-  ChronicleBaseUrl = 'http://localhost:5080'
+  ChronicleBaseUrl = 'http://localhost'
   ChronicleOrg   = 'default'
-  PricingApiUrl  = 'https://localhost:8080/v1/copilot-pricing'
+  PricingApiUrl  = 'https://localhost/pricing/copilot-pricing'
 }
 $urlConfig = $null
 if (Test-Path -LiteralPath $ConfigPath) {

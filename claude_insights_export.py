@@ -97,7 +97,7 @@ from typing import Any
 
 from openobserve_export import send_events
 
-DEFAULT_BASE_URL = "http://localhost:5080"
+DEFAULT_BASE_URL = "http://localhost"
 DEFAULT_ORG = "default"
 DEFAULT_DIR = Path.home() / ".claude" / "usage-data"
 STREAM = "claude_insights_sessions"

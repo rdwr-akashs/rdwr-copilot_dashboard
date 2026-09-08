@@ -48,7 +48,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-DEFAULT_BASE_URL = "http://localhost:5080"
+DEFAULT_BASE_URL = "http://localhost"
 DEFAULT_ORG = "default"
 DEFAULT_STREAM = "insights"
 DEFAULT_TIMEOUT_SECONDS = 10.0

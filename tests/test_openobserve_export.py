@@ -120,7 +120,7 @@ def _dedupe_app_data() -> dict:
 
 
 def test_dedupe_skips_identical_events_on_second_run(tmp_path) -> None:
-    endpoint = "http://localhost:5080/api/default/insights/_json"
+    endpoint = "http://localhost/api/default/insights/_json"
     state_path = str(tmp_path / "sent.json")
 
     first = build_insight_events(_dedupe_app_data(), now_ms=1_700_000_000_000)
@@ -137,7 +137,7 @@ def test_dedupe_skips_identical_events_on_second_run(tmp_path) -> None:
 
 
 def test_dedupe_still_sends_changed_events(tmp_path) -> None:
-    endpoint = "http://localhost:5080/api/default/insights/_json"
+    endpoint = "http://localhost/api/default/insights/_json"
     state_path = str(tmp_path / "sent.json")
 
     first = build_insight_events(_dedupe_app_data(), now_ms=1_700_000_000_000)
@@ -175,7 +175,7 @@ def _aggregate_app_data(savings_cost: float, detail: str) -> dict:
 
 
 def test_identity_mode_ships_recurring_aggregate_finding_once(tmp_path) -> None:
-    endpoint = "http://localhost:5080/api/default/insights/_json"
+    endpoint = "http://localhost/api/default/insights/_json"
     state_path = str(tmp_path / "sent.json")
 
     first = build_insight_events(_aggregate_app_data(4.0, "spend so far $40"), now_ms=1_700_000_000_000)
@@ -192,7 +192,7 @@ def test_identity_mode_ships_recurring_aggregate_finding_once(tmp_path) -> None:
 
 
 def test_identity_mode_still_ships_a_new_finding(tmp_path) -> None:
-    endpoint = "http://localhost:5080/api/default/insights/_json"
+    endpoint = "http://localhost/api/default/insights/_json"
     state_path = str(tmp_path / "sent.json")
 
     first = build_insight_events(_aggregate_app_data(4.0, "spend so far $40"), now_ms=1_700_000_000_000)
@@ -228,7 +228,7 @@ def test_send_events_can_opt_into_self_signed_tls(monkeypatch) -> None:
         return Response()
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
-    result = send_events([{"recordType": "run"}], "https://localhost:5080/api/default/insights/_json", "admin", "secret", insecure_tls=True)
+    result = send_events([{"recordType": "run"}], "https://localhost/api/default/insights/_json", "admin", "secret", insecure_tls=True)
 
     assert result["ok"] is True
     assert captured["context"] is not None

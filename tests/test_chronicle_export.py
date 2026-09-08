@@ -311,11 +311,11 @@ def test_missing_credentials_are_reported_before_anything_is_read(chronicle_db, 
 
 def test_endpoint_ignores_the_single_stream_openobserve_url(monkeypatch):
     """$OPENOBSERVE_URL names the insights stream; honouring it would misfile every row."""
-    monkeypatch.setenv("OPENOBSERVE_URL", "http://host:5080/api/default/insights/_json")
-    monkeypatch.setenv("OPENOBSERVE_BASE_URL", "http://host:5080")
+    monkeypatch.setenv("OPENOBSERVE_URL", "http://host/api/default/insights/_json")
+    monkeypatch.setenv("OPENOBSERVE_BASE_URL", "http://host")
     monkeypatch.delenv("OPENOBSERVE_ORG", raising=False)
     endpoint = chronicle_export.endpoint_for("copilot_chronicle_usage")
-    assert endpoint == "http://host:5080/api/default/copilot_chronicle_usage/_json"
+    assert endpoint == "http://host/api/default/copilot_chronicle_usage/_json"
 
 
 def test_org_and_base_url_move_every_stream_together(monkeypatch):
@@ -330,12 +330,12 @@ def test_org_and_base_url_move_every_stream_together(monkeypatch):
 def test_a_per_stream_url_overrides_only_that_stream(monkeypatch):
     monkeypatch.delenv("CHRONICLE_STREAM_URLS", raising=False)
     overrides = {"copilot_chronicle_turns": "https://proxy.example/api/x/turns_v2/_json"}
-    assert (chronicle_export.endpoint_for("copilot_chronicle_turns", "http://host:5080", "default",
+    assert (chronicle_export.endpoint_for("copilot_chronicle_turns", "http://host", "default",
                                          overrides)
             == "https://proxy.example/api/x/turns_v2/_json")
-    assert (chronicle_export.endpoint_for("copilot_chronicle_usage", "http://host:5080", "default",
+    assert (chronicle_export.endpoint_for("copilot_chronicle_usage", "http://host", "default",
                                          overrides)
-            == "http://host:5080/api/default/copilot_chronicle_usage/_json")
+            == "http://host/api/default/copilot_chronicle_usage/_json")
 
 
 def test_stream_url_overrides_reads_json_text_and_ignores_junk(monkeypatch):
@@ -358,7 +358,7 @@ def test_export_posts_to_the_overridden_url(chronicle_db, tmp_path, monkeypatch)
     monkeypatch.setattr(chronicle_export, "send_events", accept)
     report = chronicle_export.export_chronicle(
       db_path=str(chronicle_db), state_path=str(tmp_path / "state.json"), user="tester",
-      username="u", password="p", base_url="http://host:5080", org="team",
+      username="u", password="p", base_url="http://host", org="team",
       streams=["copilot_chronicle_sessions"],
       stream_urls='{"copilot_chronicle_sessions": "https://proxy.example/s/_json"}',
     )

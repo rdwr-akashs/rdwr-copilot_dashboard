@@ -194,13 +194,13 @@ def test_micros_reads_insights_timestamps_and_rejects_junk():
 
 def test_endpoint_ignores_the_single_stream_openobserve_url(monkeypatch):
     """$OPENOBSERVE_URL names the analyzer's insights stream; honouring it would misfile every row."""
-    monkeypatch.setenv("OPENOBSERVE_URL", "http://host:5080/api/default/insights/_json")
-    endpoint = cie.endpoint_for("http://host:5080", "default")
-    assert endpoint == "http://host:5080/api/default/claude_insights_sessions/_json"
+    monkeypatch.setenv("OPENOBSERVE_URL", "http://host/api/default/insights/_json")
+    endpoint = cie.endpoint_for("http://host", "default")
+    assert endpoint == "http://host/api/default/claude_insights_sessions/_json"
 
 
 def test_endpoint_override_wins_over_base_and_org():
-    endpoint = cie.endpoint_for("http://host:5080", "default", endpoint="https://proxy/x/_json")
+    endpoint = cie.endpoint_for("http://host", "default", endpoint="https://proxy/x/_json")
     assert endpoint == "https://proxy/x/_json"
 
 

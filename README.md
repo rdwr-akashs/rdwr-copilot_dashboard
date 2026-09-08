@@ -194,7 +194,7 @@ temp directory and opened `mode=ro`, so the file Copilot is using is never locke
 ```bash
 export OPENOBSERVE_USER=admin@localhost.dev
 export OPENOBSERVE_PASSWORD='...'
-export OPENOBSERVE_BASE_URL=http://localhost:5080     # plain http: what a stock container listens for
+export OPENOBSERVE_BASE_URL=http://localhost     # plain http: what a stock container listens for
 
 python openobserve/seed_schema.py openobserve/chronicle.dashboard.json   # register the columns
 python openobserve/push_dashboard.py openobserve/chronicle.dashboard.json
@@ -260,7 +260,7 @@ store, so there is no missing-store warning to log the way there is for chronicl
 
 Base and org compose the URL per stream, so one setting moves all six:
 `{ChronicleBaseUrl}/api/{ChronicleOrg}/{stream}/_json`, e.g.
-`http://localhost:5080/api/default/copilot_chronicle_usage/_json`. Every send logs its endpoint
+`http://localhost/api/default/copilot_chronicle_usage/_json`. Every send logs its endpoint
 (`sent 4892, failed 0 -> …`), and `--chronicle-dry-run` prints the target without posting.
 
 A server that does not follow that shape — a proxy, or one stream renamed without moving the rest —
@@ -361,7 +361,7 @@ the chronicle section above for why that window shape is rejected on this OpenOb
 ```bash
 export OPENOBSERVE_USER=admin@localhost.dev
 export OPENOBSERVE_PASSWORD='...'
-export OPENOBSERVE_BASE_URL=http://localhost:5080
+export OPENOBSERVE_BASE_URL=http://localhost
 
 python openobserve/seed_schema.py openobserve/claude_insights.dashboard.json   # register the columns
 python openobserve/push_dashboard.py openobserve/claude_insights.dashboard.json

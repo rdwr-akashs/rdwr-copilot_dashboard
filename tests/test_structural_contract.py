@@ -148,7 +148,7 @@ def test_compact_app_data_for_html_preserves_chronicle():
                 "rowsInDb": 50,
                 "shipped": 42,
                 "pending": 8,
-                "endpoint": "http://localhost:5080/api/default/copilot_chronicle_usage/_json",
+                "endpoint": "http://localhost/api/default/copilot_chronicle_usage/_json",
                 "everShipped": True,
             }
         ],

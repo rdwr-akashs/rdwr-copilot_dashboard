@@ -475,7 +475,7 @@ def main(argv=None) -> int:
                              "Default: $COPILOT_USER, else the logged-in user.")
     parser.add_argument("--base-url", default=None,
                         help="OpenObserve base URL (default: $OPENOBSERVE_BASE_URL, else "
-                             "http://localhost:5080)")
+                             "http://localhost)")
     parser.add_argument("--org", default=None,
                         help="OpenObserve org (default: $OPENOBSERVE_ORG, else 'default')")
     parser.add_argument("--stream-url", default=None, metavar="URL",

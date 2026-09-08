@@ -111,7 +111,7 @@ from typing import Any
 
 from openobserve_export import send_events
 
-DEFAULT_BASE_URL = "http://localhost:5080"
+DEFAULT_BASE_URL = "http://localhost"
 DEFAULT_ORG = "default"
 DEFAULT_DB = Path.home() / ".copilot" / "session-store.db"
 ENV_STATE = "CHRONICLE_STATE"

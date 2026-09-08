@@ -4,7 +4,7 @@ Credentials and location come from the same environment variables the dashboard'
 own exporter reads (`openobserve_export.py`), so a shell configured for one is
 configured for all of them:
 
-    OPENOBSERVE_BASE_URL     default http://localhost:5080
+    OPENOBSERVE_BASE_URL     default http://localhost
     OPENOBSERVE_ORG          default "default"
     OPENOBSERVE_USER         required
     OPENOBSERVE_PASSWORD     required
@@ -23,7 +23,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-DEFAULT_BASE_URL = "http://localhost:5080"
+DEFAULT_BASE_URL = "http://localhost"
 DEFAULT_ORG = "default"
 
 

@@ -888,7 +888,7 @@ def main(argv: list[str] | None = None) -> None:
       "--openobserve-url",
       default=None,
       help=(
-        "Full OpenObserve JSON ingestion URL, e.g. http://localhost:5080/api/default/insights/_json. "
+        "Full OpenObserve JSON ingestion URL, e.g. http://localhost/api/default/insights/_json. "
         "Default: $OPENOBSERVE_URL, else built from $OPENOBSERVE_BASE_URL/$OPENOBSERVE_ORG/$OPENOBSERVE_STREAM."
       ),
     )
@@ -950,9 +950,9 @@ def main(argv: list[str] | None = None) -> None:
       "--chronicle-base-url",
       default=None,
       help=(
-        "OpenObserve base URL for the chronicle streams, e.g. http://localhost:5080. Not the same "
+        "OpenObserve base URL for the chronicle streams, e.g. http://localhost. Not the same "
         "shape as --openobserve-url: chronicle writes five streams, so it takes a base and appends "
-        "each stream itself. Default: $OPENOBSERVE_BASE_URL, else http://localhost:5080."
+        "each stream itself. Default: $OPENOBSERVE_BASE_URL, else http://localhost."
       ),
     )
     parser.add_argument(
