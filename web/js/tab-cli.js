@@ -2,8 +2,13 @@ import { monthlyTrendMetricConfig, visibleCliSessions } from './aggregate.js';
 import { renderApp } from './app.js';
 import { renderMonthlyTrendChart } from './charts.js';
 import { calcModelCost, costLabel, costProvenance, costProvenanceBadge, creditsFromCost, escapeHtml, formatCost, formatDuration, formatInteger, formatPercent, formatSigned, formatTimestamp } from './format.js';
-import { openChatDeleteModal } from './modals.js';
-import { APP_DATA, HIDDEN_CLI_SESSION_IDS, PRICING_TABLE, STATE, markCliSessionsHidden, restoreHiddenCliSessions } from './state.js';
+import {
+  APP_DATA,
+  HIDDEN_CLI_SESSION_IDS,
+  PRICING_TABLE,
+  STATE,
+  markCliSessionsHidden,
+} from "./state.js";
 import { renderStatCell, renderTable } from './tables.js';
 
     // ---------------------------------------------------------------------
@@ -617,14 +622,14 @@ import { renderStatCell, renderTable } from './tables.js';
 
       const statusBody = on
         ? `
-          <div class="state-ok" style="padding:8px 12px;border-radius:8px;background:var(--panel-2)">OTel enrichment is <strong>active</strong> — parsed from ${paths.length ? paths.map((p) => `<code>${escapeHtml(p)}</code>`).join(', ') : 'a configured file-exporter path'}.</div>
+          <div class="state-ok" style="padding:8px 12px;border-radius:8px;background:var(--panel-2)">OTel enrichment is <strong>active</strong> — parsed from ${paths.length ? paths.map((p) => `<code>${escapeHtml(p)}</code>`).join(", ") : "a configured file-exporter path"}.</div>
           <div class="note small" style="margin-top:10px">
             <strong>Spans read:</strong> ${formatInteger(totalSpans)} <code>execute_tool</code> spans across ${formatInteger(toolTypeCount)} distinct tool names.<br>
             <strong>Session join:</strong> ${formatInteger(toolTypesLinked)}/${formatInteger(toolTypeCount)} tool names linked to at least one session via <code>gen_ai.conversation.id</code>. The backend does not currently expose a per-span join count, only per-tool session linkage, so treat this as a lower bound on the true join rate — spans without a conversation ID exist but aren't attributable to any session and are excluded from the "linked" count.<br>
             <strong>CLI database:</strong> ${dbStatus}
           </div>`
         : `
-          <div class="${dbFound ? 'state-warn' : 'state-critical'}" style="padding:8px 12px;border-radius:8px;background:var(--panel-2);margin-bottom:10px">OTel enrichment is <strong>off</strong> — no spans or metrics were parsed${paths.length ? ` from the configured path(s) (${paths.map((p) => `<code>${escapeHtml(p)}</code>`).join(', ')})` : ' (no file-exporter path is configured)'}. Without it, the Tool impact section and OTel-based efficiency views above stay hidden, and there is no independent source to cross-check the billed cost against — this is expected, not an error. <strong>Cost is unaffected:</strong> it comes from <code>session-store.db</code>, which records what GitHub charged.</div>
+          <div class="${dbFound ? "state-warn" : "state-critical"}" style="padding:8px 12px;border-radius:8px;background:var(--panel-2);margin-bottom:10px">OTel enrichment is <strong>off</strong> — no spans or metrics were parsed${paths.length ? ` from the configured path(s) (${paths.map((p) => `<code>${escapeHtml(p)}</code>`).join(", ")})` : " (no file-exporter path is configured)"}. Without it, the Tool impact section and OTel-based efficiency views above stay hidden, and there is no independent source to cross-check the billed cost against — this is expected, not an error. <strong>Cost is unaffected:</strong> it comes from <code>session-store.db</code>, which records what GitHub charged.</div>
           <div class="note small" style="margin-bottom:8px"><strong>CLI database:</strong> ${dbStatus}</div>
           <div class="note small" style="margin-bottom:8px">Per the official docs, CLI OTel activates when any of <code>COPILOT_OTEL_ENABLED=true</code>, <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>, or <code>COPILOT_OTEL_FILE_EXPORTER_PATH</code> is set. This dashboard reads the <strong>file exporter</strong> format, so set <code>COPILOT_OTEL_FILE_EXPORTER_PATH</code> before running <code>copilot</code>, then point the dashboard at that file with <code>--cli-otel-log &lt;path&gt;</code>. With the default <code>otlp-http</code> exporter the CLI posts spans and metrics to a collector on <code>:4318</code> and drops them if nothing is listening, which is why an unset file-exporter path leaves this panel empty.</div>
           <div class="code-block" style="margin-bottom:10px">
@@ -637,10 +642,10 @@ python dashboard_core.py --cli-otel-log "$HOME\\.copilot\\otel.jsonl"</pre>
           </div>
           <div class="code-block">
             <div class="note small" style="margin-bottom:6px;font-weight:700">bash</div>
-            <pre id="cliOtelBashSnippet" style="margin:0;white-space:pre-wrap">export COPILOT_OTEL_FILE_EXPORTER_PATH="$HOME/.copilot/otel.jsonl"
+            <pre id="cliOtelBashSnippet" style="margin:0;white-space:pre-wrap">export COPILOT_OTEL_FILE_EXPORTER_PATH="$HOME/.copilot:8080.jsonl"
 copilot
 # then, next time you generate the dashboard:
-python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
+python dashboard_core.py --cli-otel-log "$HOME/.copilot:8080.jsonl"</pre>
             <button type="button" class="copy-button" onclick="copyCliSetupSnippet('cliOtelBashSnippet', this)">⧉ Copy</button>
           </div>`;
 

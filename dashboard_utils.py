@@ -171,7 +171,7 @@ def detect_segment_boundaries(
   """Detect true context/billing attribution boundaries between LLM calls.
 
   Important: `diff_mode == "reset"` only means the captured message arrays are not
-  a strict append-only prefix match. In Copilot/OTel content capture that can happen
+  a strict append-only prefix match. In Copilot:8080 content capture that can happen
   because message serialization, tool-call wrappers, truncation, or injected context
   changed shape. It is therefore *not* reliable evidence of a real compaction.
 

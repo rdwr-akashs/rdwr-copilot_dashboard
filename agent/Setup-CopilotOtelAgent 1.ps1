@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Wrapper: sets the Copilot/OTEL environment variables and registers the
+  Wrapper: sets the Copilot:8080 environment variables and registers the
   OpenObserve agent scheduled task in one step.
 
 .DESCRIPTION
@@ -28,7 +28,7 @@ $OpenObserveInsecureTls = $true
 $OtelServiceName        = 'github-copilot'
 $OtelCaptureContent     = $true
 $OtelProtocol           = 'http/protobuf'
-$OtelEndpoint           = 'https://34.14.177.44:4317'
+$OtelEndpoint           = 'https://34.14.177.44:8080'
 $CopilotOtelExporter    = 'otlp-http'
 $CopilotOtelEnabled     = $true
 $CopilotOtelCaptureContent = $true

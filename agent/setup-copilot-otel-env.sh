@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sets the Copilot/OTEL environment variables for macOS/Linux and (optionally)
+# Sets the Copilot:8080 environment variables for macOS/Linux and (optionally)
 # installs a cron job that periodically regenerates the dashboard + pushes to
 # OpenObserve, using the same python scripts the Windows agent calls.
 #
@@ -20,7 +20,7 @@ OPENOBSERVE_INSECURE_TLS_VALUE="true"
 OTEL_SERVICE_NAME_VALUE="github-copilot"
 OTEL_CAPTURE_MESSAGE_CONTENT_VALUE="true"
 OTEL_PROTOCOL_VALUE="http/protobuf"
-OTEL_ENDPOINT_VALUE="https://34.14.177.44:4317"
+OTEL_ENDPOINT_VALUE="https://34.14.177.44:8080"
 COPILOT_OTEL_EXPORTER_TYPES_VALUE="otlp-http"
 COPILOT_OTEL_ENABLED_VALUE="true"
 COPILOT_OTEL_CAPTURE_CONTENT_VALUE="true"

@@ -49,7 +49,7 @@ def test_repeats_of_same_code_and_source_collapse_into_one_counted_entry():
             "bad line",
             severity="info",
             impact="none",
-            source="/tmp/otel.jsonl",
+            source="/tmp:8080.jsonl",
         )
     entries = diagnostics.entries()
     assert len(entries) == 1

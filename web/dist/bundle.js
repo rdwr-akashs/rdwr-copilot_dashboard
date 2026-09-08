@@ -3772,13 +3772,15 @@ _Estimates are local approximations derived from parsed usage data, not official
     const toolTypesLinked = tools.filter((tool) => Number(tool.sessionCount || 0) > 0).length;
     const dbFound = !!cli.available;
     const dbStatus = dbFound ? `Found at <code>${escapeHtml(cli.dbPath || "")}</code>.` : `Not found${cli.dbPath ? ` (looked at <code>${escapeHtml(cli.dbPath)}</code>)` : " (no path resolved \u2014 set <code>COPILOT_CLI_DB</code> or use <code>--cli-db</code>)"}. This is why the CLI tab is empty above.`;
-    const statusBody = on ? `
+    const statusBody = on
+      ? `
           <div class="state-ok" style="padding:8px 12px;border-radius:8px;background:var(--panel-2)">OTel enrichment is <strong>active</strong> \u2014 parsed from ${paths.length ? paths.map((p) => `<code>${escapeHtml(p)}</code>`).join(", ") : "a configured file-exporter path"}.</div>
           <div class="note small" style="margin-top:10px">
             <strong>Spans read:</strong> ${formatInteger(totalSpans)} <code>execute_tool</code> spans across ${formatInteger(toolTypeCount)} distinct tool names.<br>
             <strong>Session join:</strong> ${formatInteger(toolTypesLinked)}/${formatInteger(toolTypeCount)} tool names linked to at least one session via <code>gen_ai.conversation.id</code>. The backend does not currently expose a per-span join count, only per-tool session linkage, so treat this as a lower bound on the true join rate \u2014 spans without a conversation ID exist but aren't attributable to any session and are excluded from the "linked" count.<br>
             <strong>CLI database:</strong> ${dbStatus}
-          </div>` : `
+          </div>`
+      : `
           <div class="${dbFound ? "state-warn" : "state-critical"}" style="padding:8px 12px;border-radius:8px;background:var(--panel-2);margin-bottom:10px">OTel enrichment is <strong>off</strong> \u2014 no spans or metrics were parsed${paths.length ? ` from the configured path(s) (${paths.map((p) => `<code>${escapeHtml(p)}</code>`).join(", ")})` : " (no file-exporter path is configured)"}. Without it, the Tool impact section and OTel-based efficiency views above stay hidden, and there is no independent source to cross-check the billed cost against \u2014 this is expected, not an error. <strong>Cost is unaffected:</strong> it comes from <code>session-store.db</code>, which records what GitHub charged.</div>
           <div class="note small" style="margin-bottom:8px"><strong>CLI database:</strong> ${dbStatus}</div>
           <div class="note small" style="margin-bottom:8px">Per the official docs, CLI OTel activates when any of <code>COPILOT_OTEL_ENABLED=true</code>, <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>, or <code>COPILOT_OTEL_FILE_EXPORTER_PATH</code> is set. This dashboard reads the <strong>file exporter</strong> format, so set <code>COPILOT_OTEL_FILE_EXPORTER_PATH</code> before running <code>copilot</code>, then point the dashboard at that file with <code>--cli-otel-log &lt;path&gt;</code>. With the default <code>otlp-http</code> exporter the CLI posts spans and metrics to a collector on <code>:4318</code> and drops them if nothing is listening, which is why an unset file-exporter path leaves this panel empty.</div>
@@ -3792,10 +3794,10 @@ python dashboard_core.py --cli-otel-log "$HOME\\.copilot\\otel.jsonl"</pre>
           </div>
           <div class="code-block">
             <div class="note small" style="margin-bottom:6px;font-weight:700">bash</div>
-            <pre id="cliOtelBashSnippet" style="margin:0;white-space:pre-wrap">export COPILOT_OTEL_FILE_EXPORTER_PATH="$HOME/.copilot/otel.jsonl"
+            <pre id="cliOtelBashSnippet" style="margin:0;white-space:pre-wrap">export COPILOT_OTEL_FILE_EXPORTER_PATH="$HOME/.copilot:8080.jsonl"
 copilot
 # then, next time you generate the dashboard:
-python dashboard_core.py --cli-otel-log "$HOME/.copilot/otel.jsonl"</pre>
+python dashboard_core.py --cli-otel-log "$HOME/.copilot:8080.jsonl"</pre>
             <button type="button" class="copy-button" onclick="copyCliSetupSnippet('cliOtelBashSnippet', this)">\u29C9 Copy</button>
           </div>`;
     return `

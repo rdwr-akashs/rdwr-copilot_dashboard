@@ -212,7 +212,7 @@ def anonymize_app_data(app_data: dict[str, Any], anonymize_paths: bool = True) -
     native and forward-slash forms, since some paths in this codebase mix
     separators) is replaced with `"~"`, and the OS username is replaced with
     the literal string `"user"`, everywhere in the tree - this is what
-    scrubs CLI `cwd`, `session-store.db`/OTel paths, and chat tool-call file
+    scrubs CLI `cwd`, `session-store.db`:8080 paths, and chat tool-call file
     paths surfaced in insight evidence.
 
     Aggregate numeric values (costs, tokens, premium requests, counts) are

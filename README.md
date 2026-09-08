@@ -159,7 +159,7 @@ OTEL_RESOURCE_ATTRIBUTES="team.name=team1,department.name=dept1,user=YourName,or
 OTEL_SERVICE_NAME=github-copilot
 OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true
 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-OTEL_EXPORTER_OTLP_ENDPOINT=https://<OPENOBSERVE_HOST>:4317
+OTEL_EXPORTER_OTLP_ENDPOINT=https://<OPENOBSERVE_HOST>:8080
 OTEL_EXPORTER_OTLP_CERTIFICATE=/path/to/ca.crt
 COPILOT_OTEL_EXPORTER_TYPES=otlp-http
 COPILOT_OTEL_ENABLED=true
@@ -173,7 +173,7 @@ The same thing can be set via VS Code `settings.json` instead of environment var
 "github.copilot.chat.otel.enabled": true,
 "github.copilot.chat.otel.exporterType": "otlp-http",
 "github.copilot.chat.otel.protocol": "http/protobuf",
-"github.copilot.chat.otel.otlpEndpoint": "https://<OPENOBSERVE_HOST>:4317",
+"github.copilot.chat.otel.otlpEndpoint": "https://<OPENOBSERVE_HOST>:8080",
 "github.copilot.chat.otel.captureContent": true,
 "chat.viewSessions.orientation": "stacked"
 ```
@@ -299,7 +299,7 @@ The CLI can also emit OTel spans (per-tool-call timing) and metrics (token and s
 Per [GitHub's CLI reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference#opentelemetry-monitoring), OTel activates when any of `COPILOT_OTEL_ENABLED=true`, `OTEL_EXPORTER_OTLP_ENDPOINT`, or `COPILOT_OTEL_FILE_EXPORTER_PATH` is set. The dashboard reads the **file exporter** JSONL format, so set that path before running `copilot`:
 
 ```bash
-export COPILOT_OTEL_FILE_EXPORTER_PATH="$HOME/.copilot/otel.jsonl"
+export COPILOT_OTEL_FILE_EXPORTER_PATH="$HOME/.copilot:8080.jsonl"
 copilot
 ```
 
@@ -311,7 +311,7 @@ copilot
 Then point the dashboard at the file (repeatable; defaults to `$COPILOT_OTEL_FILE_EXPORTER_PATH` when set):
 
 ```bash
-python3 generate_dashboard.py --cli-otel-log ~/.copilot/otel.jsonl
+python3 generate_dashboard.py --cli-otel-log ~/.copilot:8080.jsonl
 ```
 
 Setting only `COPILOT_OTEL_ENABLED=true` uses the default `otlp-http` exporter, which posts to `localhost:4318` and silently discards everything if nothing is listening there — so it produces no file for the dashboard to read.
