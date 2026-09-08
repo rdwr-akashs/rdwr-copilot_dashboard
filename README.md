@@ -459,7 +459,7 @@ python3 serve_dashboard.py --host 127.0.0.1 --port 8765 --remote-poll-seconds 30
 To only refresh the compact/full cache files on a remote host and skip HTML generation, use cache-only mode:
 
 ```bash
-python3 serve_dashboard.py --cache-only --cache-shard 10.26.33.35
+python3 serve_dashboard.py --cache-only --cache-shard 192.0.2.10
 ```
 
 Add `--cache-poll-seconds 300` to keep refreshing the cache in a loop instead of exiting after one pass.
@@ -469,15 +469,15 @@ The `remote_start.sh` helper wraps that mode for convenience and defaults to pol
 You can also import a remote source directly from CLI (startup import + verify + download):
 
 ```bash
-python3 serve_dashboard.py --remote "10.26.33.35,itayb,/home/itayb/.vscode-server/data/User/workspaceStorage/abc/GitHub.copilot-chat/debug-logs,22"
+python3 serve_dashboard.py --remote "192.0.2.10,youruser,/home/youruser/.vscode-server/data/User/workspaceStorage/abc/GitHub.copilot-chat/debug-logs,22"
 ```
 
 The spec is `IP,USERNAME,PATH[,PORT]` — **no password field.** Authentication is
 SSH key/agent only, and the host key must already be known. Set that up once:
 
 ```bash
-ssh-copy-id itayb@10.26.33.35     # if the key is not installed yet
-ssh itayb@10.26.33.35             # accept + record the host key in known_hosts
+ssh-copy-id youruser@192.0.2.10   # if the key is not installed yet
+ssh youruser@192.0.2.10           # accept + record the host key in known_hosts
 ```
 
 Passwords were removed rather than made optional, for two reasons: anything in
