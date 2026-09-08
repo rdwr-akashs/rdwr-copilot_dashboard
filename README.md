@@ -40,6 +40,173 @@ That distinction matters because a large prompt shown in Copilot is a **snapshot
 
 The dashboard also infers **internal segments** inside a chat. A new segment starts when the model changes or when the prompt appears to have been rebuilt/reset (for example after compaction or a large context reset). Totals for the full chat remain the sum of all billed calls across all segments.
 
+## Organization rollout: the `agent/` installer (centralized OpenObserve)
+
+Everything above describes reading logs on **one machine**, optionally self-hosted. The `agent/`
+folder is the other deployment shape: a single install step per developer machine that keeps
+exporting Copilot usage to one **shared, org-wide OpenObserve instance**, so cost/usage can be
+viewed centrally across a whole organization rather than per developer.
+
+### Design goals
+
+- Functional: track AI (Copilot) usage across the organization and surface insight to improve cost and usage efficiency.
+- Non-functional:
+  - accept usage data from ~1000 developers
+  - support both Windows and macOS developer machines
+  - the central OpenObserve instance should be highly available and horizontally scalable
+  - secure by default (TLS to the collector, no plaintext credentials on disk)
+
+### Architecture
+
+```mermaid
+flowchart LR
+  subgraph Dev1["Developer machine 1"]
+    VS1["VS Code / IntelliJ<br/>Copilot OTel plugin"]
+    PY1["python svc<br/>(agent scheduled task)"]
+    DB1[("sqlite / log files")]
+    LOCAL1["developer dashboard<br/>dashboard.html"]
+    VS1 --> PY1
+    DB1 --> PY1
+    PY1 --> LOCAL1
+  end
+
+  subgraph Dev2["Developer machine 2 (...N)"]
+    VS2["VS Code / IntelliJ<br/>Copilot OTel plugin"]
+    PY2["python svc"]
+    DB2[("sqlite / log files")]
+    LOCAL2["developer dashboard"]
+    VS2 --> PY2
+    DB2 --> PY2
+    PY2 --> LOCAL2
+  end
+
+  VS1 -- "raw OTel data" --> OTEL["OTEL collector<br/>(standard attrs)"]
+  VS2 -- "raw OTel data" --> OTEL
+  OTEL --> PRICING["pricing svc"]
+  PRICING --> OO[("OpenObserve<br/>backend storage")]
+  PY1 -- "insight stream + chronicle stream" --> OO
+  PY2 -- "insight stream + chronicle stream" --> OO
+  OO --> DASH["OpenObserve dashboard<br/>per user / team / department"]
+```
+
+Each developer machine runs the Copilot OTel plugin (raw usage data) plus a local python service
+(this repo's `generate_dashboard.py` / `chronicle_export.py` / `openobserve_export.py`, run on a
+schedule by the agent) that derives richer insights the raw OTel data alone can't provide — those
+insights are pushed as their own stream so recomputing them doesn't require re-reading every raw
+session file.
+
+### 1. Central server setup (platform/infra team, one-time)
+
+This part is unrelated to this repo — it stands up the shared OpenObserve + OTEL collector that
+every developer machine reports into:
+
+```bash
+chmod 777 scripts/*
+sudo CERT_EXTRA_SANS="IP:<OPENOBSERVE_HOST>" ./scripts/generate-certs.sh
+sudo chmod 777 certs/*
+sudo bash ./scripts/setup-observability.sh
+```
+
+The `generate-certs.sh` step produces the `ca.crt` that every developer needs below — get a copy of
+it (and the resulting OpenObserve host/URL) from whoever runs this step for your organization.
+
+### 2. Developer machine setup
+
+1. Clone this repo.
+2. Get `ca.crt` (from step 1 above) onto your machine and note its path — you'll be asked for it.
+3. Run the installer for your OS from the `agent/` folder:
+
+**Windows:**
+
+```powershell
+cd \path\to\rdwr-copilot_dashboard-openobserve-agent\agent
+powershell -ExecutionPolicy Bypass -File .\Setup-CopilotOtelAgent.ps1
+```
+
+You'll be prompted for:
+- OTEL resource attributes, e.g. `team.name=team1,department.name=dept1,user=YourName,org=AMS`
+- the path to `ca.crt`
+
+This sets the OTEL/Copilot environment variables at User scope and registers the
+`CopilotDashboardOpenObserve` scheduled task (via `install-openobserve-agent.ps1`) in one step —
+open a new terminal/VS Code window afterward so the new environment variables are visible to it.
+
+**macOS / Linux:**
+
+```bash
+cd /path/to/rdwr-copilot_dashboard-openobserve-agent/agent
+chmod +x setup-copilot-otel-env.sh
+./setup-copilot-otel-env.sh
+```
+
+This covers the environment-variable step only; there's no macOS/Linux equivalent of the Windows
+scheduled task, so wire the periodic export into `cron`/`launchd` yourself (the script prints an
+example line) if you want automatic re-exports without keeping a terminal open.
+
+4. **IntelliJ users only** — the single-command installer above does not configure IntelliJ's own
+   Copilot plugin. In IntelliJ: **Settings → GitHub Copilot → Chat → enable "OpenTelemetry
+   support"**, then set its OTLP endpoint to the same OTEL collector endpoint your platform team
+   gave you.
+
+<details>
+<summary>What the installer sets, for reference/troubleshooting</summary>
+
+Environment variables (Windows: `Setup-CopilotOtelAgent.ps1`; mac/Linux: `setup-copilot-otel-env.sh`):
+
+```bash
+OPENOBSERVE_INSECURE_TLS=true
+OTEL_RESOURCE_ATTRIBUTES="team.name=team1,department.name=dept1,user=YourName,org=AMS"
+OTEL_SERVICE_NAME=github-copilot
+OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+OTEL_EXPORTER_OTLP_ENDPOINT=https://<OPENOBSERVE_HOST>:4317
+OTEL_EXPORTER_OTLP_CERTIFICATE=/path/to/ca.crt
+COPILOT_OTEL_EXPORTER_TYPES=otlp-http
+COPILOT_OTEL_ENABLED=true
+COPILOT_OTEL_CAPTURE_CONTENT=true
+```
+
+The same thing can be set via VS Code `settings.json` instead of environment variables:
+
+```json
+"github.copilot.chat.agentDebugLog.fileLogging.enabled": true,
+"github.copilot.chat.otel.enabled": true,
+"github.copilot.chat.otel.exporterType": "otlp-http",
+"github.copilot.chat.otel.protocol": "http/protobuf",
+"github.copilot.chat.otel.otlpEndpoint": "https://<OPENOBSERVE_HOST>:4317",
+"github.copilot.chat.otel.captureContent": true,
+"chat.viewSessions.orientation": "stacked"
+```
+
+Windows scheduled-task registration (what `Setup-CopilotOtelAgent.ps1` calls under the hood; can
+also be run standalone from `agent/`):
+
+```powershell
+.\install-openobserve-agent.ps1 `
+  -Url 'https://<OPENOBSERVE_HOST>:5080/api/default/insights/_json' `
+  -ChronicleBaseUrl 'https://<OPENOBSERVE_HOST>:5080' `
+  -ChronicleOrg 'default' `
+  -PricingApiUrl 'https://<OPENOBSERVE_HOST>:8080/v1/copilot-pricing' `
+  -UserName 'admin@localhost.dev' `
+  -IntervalMinutes 360
+```
+
+</details>
+
+### Where to check the results
+
+- Local agent log: `C:\Users\<username>\AppData\Local\copilot-dashboard\agent.log`
+- Local developer dashboard: `C:\Users\<username>\AppData\Local\Temp\dashboard.html`
+- Central data: the OpenObserve web UI your platform team gave you (e.g. `https://<OPENOBSERVE_HOST>:5080/web`)
+
+> **Close VS Code / IntelliJ after running the installer** so the session file is flushed to disk —
+> otherwise the last, still-open session won't show up in OpenObserve yet.
+
+### References
+
+- [GitHub Copilot monitoring guide (VS Code docs)](https://code.visualstudio.com/docs/agents/guides/monitoring-agents)
+- OpenObserve web UI and the pricing service URL are org-specific — get them from whoever runs step 1 above.
+
 ## Requirements
 
 - Python 3 (Windows: the `python` command; Linux/Mac: `python3`)
