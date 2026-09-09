@@ -64,6 +64,14 @@ param(
   [string]$ChronicleSince,
   [string]$ChronicleUser,
   [string]$ChronicleStatePath = (Join-Path $env:USERPROFILE '.copilot-dashboard\chronicle_state.json'),
+  # Captures the /chronicle standup|tips|cost-tips|improve prose into copilot_chronicle_advice.
+  # Off by default: unlike everything else this script sends, every capture is a billed model
+  # call, so it is opt-in and gated by -ChronicleAdviceIntervalDays rather than run on every tick.
+  [switch]$ChronicleAdvice,
+  [double]$ChronicleAdviceIntervalDays = 7,
+  [string]$ChronicleAdviceStatePath = (Join-Path $env:USERPROFILE '.copilot-dashboard\chronicle_advice_state.json'),
+  [string[]]$ChronicleAdviceCommands,
+  [switch]$ChronicleAdviceNoSummary,
   [string]$PricingApiUrl,
   [double]$PricingCacheDays = (1.0 / 24.0),
   [string]$LogPath = (Join-Path $env:LOCALAPPDATA 'copilot-dashboard\agent.log')
@@ -214,6 +222,48 @@ try {
   if ($code -ne 0) {
     Write-Log "generate_dashboard.py exited with code $code" 'ERROR'
     exit $code
+  }
+
+  if ($ChronicleAdvice) {
+    $lastAdviceRun = $null
+    if (Test-Path -LiteralPath $ChronicleAdviceStatePath) {
+      try {
+        $lastAdviceRun = [datetime]::Parse(
+          (Get-Content -LiteralPath $ChronicleAdviceStatePath -Raw | ConvertFrom-Json).LastRunUtc,
+          $null, [Globalization.DateTimeStyles]::RoundtripKind)
+      } catch {
+        Write-Log "Could not parse -ChronicleAdviceStatePath '$ChronicleAdviceStatePath': $_. Treating advice as due." 'WARN'
+      }
+    }
+    $due = (-not $lastAdviceRun) -or (((Get-Date).ToUniversalTime() - $lastAdviceRun).TotalDays -ge $ChronicleAdviceIntervalDays)
+    if ($due) {
+      Write-Log "Chronicle advice: capturing (every $ChronicleAdviceIntervalDays day(s); last run $(if ($lastAdviceRun) { $lastAdviceRun.ToString('o') } else { 'never' }))."
+      $adviceArguments = @('--base-url', $ChronicleBaseUrl, '--org', $ChronicleOrg)
+      if ($ChronicleAdviceCommands) {
+        foreach ($cmd in $ChronicleAdviceCommands) { $adviceArguments += @('--command', $cmd) }
+      }
+      if ($ChronicleAdviceNoSummary) { $adviceArguments += '--no-summary' }
+      if ($OpenObserveInsecureTls) { $adviceArguments += '--insecure-tls' }
+      Push-Location $RepoRoot
+      try {
+        $adviceOutput = & $Python '.\chronicle_advice.py' $adviceArguments 2>&1
+        $adviceCode = $LASTEXITCODE
+      } finally {
+        Pop-Location
+      }
+      foreach ($line in $adviceOutput) { Write-Log ('advice: ' + $line.ToString()) }
+      if ($adviceCode -eq 0) {
+        $adviceDir = Split-Path -Parent $ChronicleAdviceStatePath
+        if ($adviceDir -and -not (Test-Path -LiteralPath $adviceDir)) { New-Item -ItemType Directory -Path $adviceDir -Force | Out-Null }
+        @{ LastRunUtc = (Get-Date).ToUniversalTime().ToString('o') } |
+          ConvertTo-Json | Set-Content -LiteralPath $ChronicleAdviceStatePath -Encoding UTF8
+        Write-Log 'Chronicle advice: captured and ingested.'
+      } else {
+        Write-Log "chronicle_advice.py exited with code $adviceCode; state not advanced, will retry next run." 'WARN'
+      }
+    } else {
+      Write-Log "Chronicle advice: not due yet (last run $($lastAdviceRun.ToString('o')), next due in $([math]::Round($ChronicleAdviceIntervalDays - ((Get-Date).ToUniversalTime() - $lastAdviceRun).TotalDays, 1)) day(s))."
+    }
   }
 
   Write-Log 'Run completed.'
