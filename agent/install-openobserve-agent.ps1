@@ -35,6 +35,10 @@ param(
   [string]$ChronicleSince,
   [string]$ChronicleUser,
   [switch]$NoChronicle,
+  [switch]$ChronicleAdvice,
+  [double]$ChronicleAdviceIntervalDays = 7,
+  [string[]]$ChronicleAdviceCommands,
+  [switch]$ChronicleAdviceNoSummary,
   [string]$ClaudeDir,
   [string]$ClaudeBaseUrl,
   [string]$ClaudeOrg,
@@ -127,6 +131,14 @@ $arguments = @(
 if ($ChronicleSince) { $arguments += @('-ChronicleSince'; "`"$ChronicleSince`"") }
 if ($ChronicleUser) { $arguments += @('-ChronicleUser'; "`"$ChronicleUser`"") }
 if ($NoChronicle) { $arguments += '-NoChronicle' }
+if ($ChronicleAdvice) {
+  $arguments += '-ChronicleAdvice'
+  $arguments += @('-ChronicleAdviceIntervalDays'; $ChronicleAdviceIntervalDays.ToString([Globalization.CultureInfo]::InvariantCulture))
+  # Comma-joined into one token: how PowerShell's own CLI parser binds a [string[]] parameter
+  # from a flat argument list, which is what the scheduled task action ends up passing.
+  if ($ChronicleAdviceCommands) { $arguments += @('-ChronicleAdviceCommands'; ($ChronicleAdviceCommands -join ',')) }
+  if ($ChronicleAdviceNoSummary) { $arguments += '-ChronicleAdviceNoSummary' }
+}
 if ($ClaudeDir) { $arguments += @('-ClaudeDir'; "`"$ClaudeDir`"") }
 if ($ClaudeBaseUrl) { $arguments += @('-ClaudeBaseUrl'; "`"$ClaudeBaseUrl`"") }
 if ($ClaudeOrg) { $arguments += @('-ClaudeOrg'; "`"$ClaudeOrg`"") }
@@ -153,13 +165,21 @@ $settings = New-ScheduledTaskSettingsSet `
 
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
 
+$description = 'Generates the Copilot usage dashboard, ships new insights to OpenObserve, replays new Copilot CLI chronicle history into the copilot_chronicle_* streams, and ships Claude Code usage into claude_insights_sessions.'
+if ($ChronicleAdvice) { $description += " Captures /chronicle advice into copilot_chronicle_advice every $ChronicleAdviceIntervalDays day(s)." }
+
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers `
-  -Settings $settings -Principal $principal -Description 'Generates the Copilot usage dashboard, ships new insights to OpenObserve, replays new Copilot CLI chronicle history into the copilot_chronicle_* streams, and ships Claude Code usage into claude_insights_sessions.' -Force | Out-Null
+  -Settings $settings -Principal $principal -Description $description -Force | Out-Null
 
 Write-Host "Registered scheduled task '$TaskName' (every $IntervalMinutes minute(s) and at logon)."
 Write-Host "Insights stream:   $Url"
 Write-Host "Chronicle streams: $ChronicleBaseUrl/api/$ChronicleOrg/copilot_chronicle_{usage,costs,sessions,files,turns}/_json"
 Write-Host "Per-stream URL overrides: the 'ChronicleStreamUrls' object in $ConfigPath"
+Write-Host $(if ($ChronicleAdvice) {
+  "Chronicle advice: enabled, captured at most every $ChronicleAdviceIntervalDays day(s) (billed model calls) -> copilot_chronicle_advice"
+} else {
+  "Chronicle advice: disabled (re-run with -ChronicleAdvice to capture /chronicle standup/tips/cost-tips/improve; billed model calls, so opt-in)"
+})
 Write-Host "Claude stream:     $(if ($ClaudeBaseUrl) { $ClaudeBaseUrl } else { $ChronicleBaseUrl })/api/$(if ($ClaudeOrg) { $ClaudeOrg } else { $ChronicleOrg })/claude_insights_sessions/_json$(if ($NoClaude) { ' (disabled: -NoClaude)' })"
 Write-Host "Run it now with: Start-ScheduledTask -TaskName $TaskName"
 Write-Host "Log file: $(Join-Path $credentialDir 'agent.log')"
