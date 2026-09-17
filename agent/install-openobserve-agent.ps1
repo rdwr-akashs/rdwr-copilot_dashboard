@@ -100,6 +100,13 @@ if (-not $Python) {
 if (-not $Password) {
   $Password = Read-Host -AsSecureString "OpenObserve password for $UserName"
 }
+if ($Password.Length -eq 0) {
+  # A blank Read-Host answer (or -Password (New-Object System.Security.SecureString)) decrypts
+  # fine later with no error, so the agent's checked-in Python side would be the first thing to
+  # notice -- silently, on every scheduled run. Reject it here instead, without ever decrypting it:
+  # SecureString.Length counts characters and needs no plaintext access.
+  throw 'OpenObserve password is empty. Re-run and enter a non-empty password (or pass -Password with a non-empty SecureString).'
+}
 
 $credentialDir = Join-Path $env:LOCALAPPDATA 'copilot-dashboard'
 if (-not (Test-Path -LiteralPath $credentialDir)) {
