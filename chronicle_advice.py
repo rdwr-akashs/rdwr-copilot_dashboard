@@ -127,7 +127,13 @@ disclosure decision and not a formatting one, so read a captured row before sche
 WHAT LANDS IN THE STREAM
 ------------------------
 One row per run per subcommand in `copilot_chronicle_advice`: the text, how long it took, the exit
-code, and `service_user` so the Developer filter reaches it. Two columns name the command, because
+code, and `service_user` with `service_team_name` and `service_department_name` so the Developer,
+Team and Department filters reach it. The two attribution columns are resolved the way the
+collector resolves them -- `TEAM_NAME`/`DEPARTMENT_NAME`, else `team.name`/`department.name` out of
+`OTEL_RESOURCE_ATTRIBUTES`, else `unattributed` -- because a row this script ingests directly never
+passes through the collector that would otherwise stamp them, and a stream with no team column at
+all is one the dashboard's Team filter cannot narrow. Rows captured before this existed have no
+value in either column. Two columns name the command, because
 they are not the same thing -- `chronicle_command` is the bare subcommand and is what the panel keys
 on to show the latest of each, while `chronicle_request` is the whole thing that was asked,
 arguments included. Without the split, "standup last 7 days" and "standup last month" would be two
@@ -153,7 +159,8 @@ import time
 from pathlib import Path
 
 from chronicle_export import ADVICE_STREAM as STREAM
-from chronicle_export import default_user, endpoint_for, stream_url_overrides
+from chronicle_export import (default_user, endpoint_for, stream_url_overrides,
+                              team_and_department)
 from openobserve_export import send_events
 
 # The order a person would read them in: what happened, then how to work better, then what it costs,
@@ -473,6 +480,13 @@ def main(argv=None) -> int:
                         help="value written to service_user, which the Developer filter matches "
                              "on. Spell it exactly as the rest of the pipeline does. "
                              "Default: $COPILOT_USER, else the logged-in user.")
+    parser.add_argument("--team", help="value written to service_team_name, for the Team filter. "
+                                      "Defaults to TEAM_NAME, then to team.name in "
+                                      "OTEL_RESOURCE_ATTRIBUTES, then to 'unattributed'.")
+    parser.add_argument("--department",
+                        help="value written to service_department_name, for the Department filter. "
+                             "Defaults to DEPARTMENT_NAME, then to department.name in "
+                             "OTEL_RESOURCE_ATTRIBUTES, then to 'unattributed'.")
     parser.add_argument("--base-url", default=None,
                         help="OpenObserve base URL (default: $OPENOBSERVE_BASE_URL, else "
                              "http://localhost)")
@@ -494,9 +508,11 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     identity = args.user or default_user()
+    team, department = team_and_department(args.team, args.department)
     commands = args.command or list(DEFAULT_COMMANDS)
     cli = resolve_cli(args.copilot)
     print("CLI: %s" % " ".join(cli))
+    print("filing captures under %s, team %s, department %s" % (identity, team, department))
 
     account = os.environ.get("OPENOBSERVE_USER") or ""
     secret = os.environ.get("OPENOBSERVE_PASSWORD") or ""
@@ -542,6 +558,8 @@ def main(argv=None) -> int:
         rows.append({
             "_timestamp": int(time.time() * 1_000_000),
             "service_user": identity,
+            "service_team_name": team,
+            "service_department_name": department,
             "chronicle_command": subcommand,
             "chronicle_request": request,
             "advice_text": text,
