@@ -1,523 +1,317 @@
-# Copilot & Claude Code OpenTelemetry Agent Setup
+# AI Coding Usage Dashboard — Setup Guide
 
-Unified setup script for configuring GitHub Copilot and Claude Code telemetry with OpenObserve.
+Sends your **GitHub Copilot** and **Claude Code** usage to the team's shared OpenObserve dashboard,
+so you can see what your sessions cost, which models you use, and how you compare with the team.
 
-## Overview
+Setup takes about **10 minutes** and you only do it once.
 
-`Setup-CopilotOtelAgent.ps1` configures three things in one step:
-1. **Environment variables** for Copilot OTLP export (User scope)
-2. **Claude Code telemetry** in `~/.claude/settings.json`
-3. **Scheduled task** for insights/chronicle/pricing ingestion
+---
 
-## Prerequisites
+## Before you start
 
-### Windows
-- **PowerShell 5.1+**
-- **Python 3.x** on PATH (for the scheduled agent)
-- **Docker Desktop** (for LOCAL mode) or access to remote OpenObserve server
-- **OpenObserve instance** running (local or remote)
+Tick these off first — most setup problems come from one of them.
 
-### macOS/Linux
-- **Bash/Zsh**
-- **Python 3.x** on PATH (optional, for manual dashboard generation)
-- **Docker** (for LOCAL mode) or access to remote OpenObserve server
-- **OpenObserve instance** running (local or remote)
+| # | You need | How to check |
+|---|----------|--------------|
+| 1 | Windows 10/11 with PowerShell | Open *PowerShell* from the Start menu |
+| 2 | Python 3 on your PATH | `python --version` prints `Python 3.x` |
+| 3 | Git | `git --version` |
+| 4 | Copilot and/or Claude Code already installed and working | You can open a chat |
+| 5 | The **`ca.crt`** file | Attached to the setup email |
+| 6 | The **OpenObserve password** | Sent to you separately (never in the email) |
+| 7 | Your **team name** and **department name** | Ask your lead if unsure; spelling must match your teammates' |
 
-## Quick Start
+> On macOS or Linux? Do steps 1–4 below using the [macOS / Linux](#macos--linux) section instead.
 
-### Windows
+---
 
-#### Local Docker (Default)
+## Setup (Windows)
+
+### Step 1 — Save the certificate
+
+Save the `ca.crt` from the email to a permanent location, for example:
+
+```
+C:\Users\<you>\observability\ca.crt
+```
+
+Don't leave it in *Downloads* — if it's moved or deleted later, telemetry silently stops.
+
+### Step 2 — Get the code
+
 ```powershell
-# Start your Docker observability stack first
-cd C:\rdwr-intelij\observability
-docker compose up -d
-
-# Run setup (defaults to LOCAL mode)
-cd C:\rdwr-intelij\rdwr-copilot_dashboard-openobserve-agent\agent
-powershell -ExecutionPolicy Bypass -File .\Setup-CopilotOtelAgent.ps1
+cd C:\
+git clone https://github.com/rdwr-akashs/rdwr-copilot_dashboard.git
+cd rdwr-copilot_dashboard\agent
 ```
 
-#### Remote Server
-```powershell
-powershell -ExecutionPolicy Bypass -File .\Setup-CopilotOtelAgent.ps1 -Mode REMOTE
-```
+Keep this folder. The background job that uploads your history runs from it.
 
-### macOS/Linux
+### Step 3 — Run the setup script
 
-#### Local Docker (Default)
-```bash
-# Start your Docker observability stack first
-cd /path/to/observability
-docker compose up -d
+In a **normal** PowerShell window (not "Run as administrator"):
 
-# Run setup (defaults to local mode)
-cd /path/to/rdwr-copilot_dashboard-openobserve-agent/agent
-chmod +x setup-copilot-otel-env.sh
-./setup-copilot-otel-env.sh
-```
-
-#### Remote Server
-```bash
-./setup-copilot-otel-env.sh remote
-```
-
-**Note**: The shell script only configures environment variables. Windows scheduled task features are not available on macOS/Linux. See [macOS/Linux Limitations](#macoslinux-limitations) below.
-
-## Command-Line Parameters
-
-### Mode Selection
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `-Mode` | String | `LOCAL` | Target environment: `LOCAL` (Docker localhost) or `REMOTE` (production server) |
-
-### Chronicle Advice Capture
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `-ChronicleAdvice` | Switch | `false` | Enable Chronicle advice capture (⚠️ makes billed model calls) |
-| `-ChronicleAdviceIntervalDays` | Double | `7` | How often to capture advice (in days) |
-| `-ChronicleAdviceCommands` | String[] | (all) | Which commands to capture: `standup`, `tips`, `cost-tips`, `improve` |
-| `-ChronicleAdviceNoSummary` | Switch | `false` | Skip the summary when capturing advice |
-
-## Configuration by Mode
-
-### LOCAL Mode (Default)
-- **OpenObserve**: `http://localhost:5080`
-- **Copilot OTLP**: `http://localhost:4318` (HTTP)
-- **Claude Code OTLP**: `http://localhost:4418` (HTTP)
-- **Organization**: `default`
-- **Username**: `admin@localhost.dev`
-- **Password**: `OpenObserve1!` (default)
-- **TLS/Auth**: None required
-
-### REMOTE Mode
-- **OpenObserve**: `https://34.14.177.44`
-- **Copilot OTLP**: `https://34.14.177.44:8080` (HTTPS)
-- **Claude Code OTLP**: `https://34.14.177.44:8080` (HTTPS)
-- **Organization**: `default`
-- **Username**: `admin@localhost.dev`
-- **TLS/Auth**: Required (prompts for certificate path)
-
-## Usage Examples
-
-### Basic Setup
-
-#### Local Development (Default)
-```powershell
-# Minimal - uses all defaults
-powershell -ExecutionPolicy Bypass -File .\Setup-CopilotOtelAgent.ps1
-```
-
-When prompted:
-- **OTEL resource attributes**: `team.name=yourteam,department.name=engineering,user=YourName,org=AMS`
-- **Password**: `OpenObserve1!` (default for local Docker)
-
-#### Remote Server
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\Setup-CopilotOtelAgent.ps1 -Mode REMOTE
 ```
 
-When prompted:
-- **OTEL resource attributes**: `team.name=yourteam,department.name=engineering,user=YourName,org=AMS`
-- **Certificate path**: `C:\path\to\ca.crt`
-- **Password**: Your actual server password
+It asks three questions:
 
-### With Chronicle Advice
+**1. `OTEL resource attributes`** — who you are. Type one line in exactly this shape:
 
-#### Enable Basic Advice (Every 7 Days, All Commands)
-```powershell
-powershell -ExecutionPolicy Bypass -File .\Setup-CopilotOtelAgent.ps1 `
-  -ChronicleAdvice
+```
+team.name=<team>,department.name=<department>,user=<YourName>,org=RDWR
 ```
 
-#### Capture Only Daily Standup (Every 1 Day)
-```powershell
-powershell -ExecutionPolicy Bypass -File .\Setup-CopilotOtelAgent.ps1 `
-  -ChronicleAdvice `
-  -ChronicleAdviceIntervalDays 1 `
-  -ChronicleAdviceCommands standup
+Example:
+
+```
+team.name=washim_scrum,department.name=AMS,user=AkashS,org=RDWR
 ```
 
-#### Multiple Commands, Custom Interval
-```powershell
-powershell -ExecutionPolicy Bypass -File .\Setup-CopilotOtelAgent.ps1 `
-  -ChronicleAdvice `
-  -ChronicleAdviceIntervalDays 3 `
-  -ChronicleAdviceCommands standup,tips,cost-tips
-```
+- No spaces anywhere.
+- Use the **same spelling as your teammates** — the dashboard's Team and Department filters list
+  whatever they find, so `AMS` and `ams` become two different departments.
+- `user` is the name you'll pick in the dashboard's *Developer* filter.
 
-#### Skip Summary (Faster, Less Detail)
-```powershell
-powershell -ExecutionPolicy Bypass -File .\Setup-CopilotOtelAgent.ps1 `
-  -ChronicleAdvice `
-  -ChronicleAdviceNoSummary
-```
+**2. `Path to OTEL exporter certificate (ca.crt)`** — the full path from Step 1, e.g.
+`C:\Users\<you>\observability\ca.crt`
 
-### Complete Examples
+**3. `OpenObserve password`** — the password you were sent. Nothing is shown as you type; that's
+expected.
 
-#### Local + Full Advice
-```powershell
-powershell -ExecutionPolicy Bypass -File .\Setup-CopilotOtelAgent.ps1 `
-  -Mode LOCAL `
-  -ChronicleAdvice `
-  -ChronicleAdviceIntervalDays 7 `
-  -ChronicleAdviceCommands standup,tips,cost-tips,improve
-```
+When it finishes you'll see messages confirming the environment variables, the Claude Code settings,
+and the scheduled task.
 
-#### Remote + Weekly Standup Only
-```powershell
-powershell -ExecutionPolicy Bypass -File .\Setup-CopilotOtelAgent.ps1 `
-  -Mode REMOTE `
-  -ChronicleAdvice `
-  -ChronicleAdviceIntervalDays 7 `
-  -ChronicleAdviceCommands standup `
-  -ChronicleAdviceNoSummary
-```
+### Step 4 — Restart your tools
 
-## What Gets Configured
+The new settings are only picked up by programs started **after** setup:
 
-### 1. Environment Variables (User Scope)
-The following environment variables are set for your user:
-- `OPENOBSERVE_INSECURE_TLS`
-- `OTEL_RESOURCE_ATTRIBUTES`
-- `OTEL_SERVICE_NAME`
-- `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`
-- `OTEL_EXPORTER_OTLP_PROTOCOL`
-- `OTEL_EXPORTER_OTLP_ENDPOINT`
-- `OTEL_EXPORTER_OTLP_CERTIFICATE` (REMOTE mode only)
-- `COPILOT_OTEL_EXPORTER_TYPES`
-- `COPILOT_OTEL_ENABLED`
-- `COPILOT_OTEL_CAPTURE_CONTENT`
+1. Close **every** PowerShell / terminal window.
+2. Fully quit and reopen **VS Code** (File → Exit, not just closing the window).
+3. Quit and restart **Claude Code**.
+4. **IntelliJ users:** IntelliJ's Copilot plugin is not configured by the script. Go to
+   *Settings → GitHub Copilot → Chat*, turn on **OpenTelemetry support**, and set the endpoint to
+   `https://34.14.177.44:8080`.
 
-⚠️ **Important**: Open a new terminal/VS Code window after setup for these to take effect.
+That's it. Use Copilot / Claude Code normally from now on.
 
-### 2. Claude Code Configuration (`~/.claude/settings.json`)
-The following settings are merged into your Claude Code config:
-```json
-{
-  "env": {
-    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-    "OTEL_METRICS_EXPORTER": "otlp",
-    "OTEL_LOGS_EXPORTER": "otlp",
-    "OTEL_TRACES_EXPORTER": "otlp",
-    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
-    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
-    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4418",
-    "OTEL_SERVICE_NAME": "claude-code",
-    "OTEL_RESOURCE_ATTRIBUTES": "...",
-    "OTEL_LOG_USER_PROMPTS": "1",
-    "OTEL_LOG_ASSISTANT_RESPONSES": "1"
-  }
-}
-```
+---
 
-⚠️ **Important**: Restart Claude Code or start a new session for changes to take effect.
+## Check that it worked
 
-### 3. Scheduled Task
-A Windows scheduled task named `CopilotDashboardOpenObserve` is registered:
-- **Trigger**: At logon + every 6 hours (360 minutes, configurable)
-- **Action**: Runs `openobserve-agent.ps1` to:
-  - Generate Copilot usage dashboard
-  - Ship insights to OpenObserve
-  - Replay Copilot CLI chronicle history
-  - Ship Claude Code usage
-  - Capture Chronicle advice (if enabled)
+1. Open a new chat in Copilot or Claude Code and send one prompt.
+2. Wait about 5 minutes.
+3. Open **https://34.14.177.44/web/** and log in with the username `admin@localhost.dev` and the
+   password you were sent. Your browser will warn about the certificate; that's expected for this
+   server.
+4. Open **Dashboards** and choose:
+   - **Claude Code Productivity (CLI)** — Claude Code usage
+   - **Copilot Code Team Productivity** — Copilot usage
+5. In the **Developer** filter at the top, pick **your** `user` name. The default shows everyone.
 
-View/manage: `Task Scheduler` → `Task Scheduler Library` → `CopilotDashboardOpenObserve`
+Don't see yourself after 10 minutes? Go to [Troubleshooting](#troubleshooting).
 
-## Environment Variable Overrides
+---
 
-You can override any endpoint without editing the script by setting these environment variables:
+## What gets collected
 
-```powershell
-# Override before running setup
-$env:OPENOBSERVE_BASE_URL = 'http://custom-host:5080'
-$env:COPILOT_OTEL_ENDPOINT = 'http://custom-host:4318'
-$env:CLAUDE_OTEL_ENDPOINT = 'http://custom-host:4418'
-$env:OPENOBSERVE_ORG = 'myorg'
-$env:OPENOBSERVE_USER = 'myuser@example.com'
+| Collected | Details |
+|-----------|---------|
+| Usage | Session start/end, number of prompts, model calls, tool calls, errors |
+| Cost and tokens | Tokens per call and estimated cost (list-price estimate, not a bill) |
+| Environment | Tool version, VS Code / terminal, model used |
+| Identity | The `team.name`, `department.name` and `user` you typed in Step 3 |
+| **Prompt and reply text** | **Yes** — this setup turns on content capture for both Copilot and Claude Code |
 
-# Then run setup
-powershell -ExecutionPolicy Bypass -File .\Setup-CopilotOtelAgent.ps1
-```
+Everyone with dashboard access can see this data. Don't paste secrets, customer data or credentials
+into Copilot or Claude Code prompts.
 
-## OpenObserve Streams
+In the background, a scheduled task named `CopilotDashboardOpenObserve` runs at logon and every
+6 hours. It uploads your local Copilot CLI history and Claude Code usage summaries so the dashboard
+also covers sessions from before the live telemetry started.
 
-After setup, your telemetry is ingested into these streams:
-
-### Copilot Streams
-- `lld-agent` - Live OTLP traces/logs/metrics from Copilot
-- `copilot_chronicle_usage` - CLI usage events
-- `copilot_chronicle_costs` - Cost data
-- `copilot_chronicle_sessions` - Session records
-- `copilot_chronicle_files` - File-level statistics
-- `copilot_chronicle_turns` - Turn-by-turn interactions
-- `copilot_chronicle_advice` - Advice captures (if `-ChronicleAdvice` enabled)
-
-### Claude Code Streams
-- `claude-code` - Live OTLP traces/logs/metrics from Claude Code
-- `claude_insights_sessions` - Session usage data
-
-## Access OpenObserve Dashboard
-
-### Local Mode
-```
-URL: http://localhost:5080
-Username: admin@localhost.dev
-Password: OpenObserve1!
-```
-
-### Remote Mode
-```
-URL: https://34.14.177.44
-Username: admin@localhost.dev
-Password: <your-server-password>
-```
-
-## Switching Between Local and Remote
-
-You can switch modes at any time by re-running the setup with a different `-Mode`:
-
-```powershell
-# Switch to LOCAL
-powershell -ExecutionPolicy Bypass -File .\Setup-CopilotOtelAgent.ps1 -Mode LOCAL
-
-# Switch to REMOTE
-powershell -ExecutionPolicy Bypass -File .\Setup-CopilotOtelAgent.ps1 -Mode REMOTE
-```
-
-This will:
-- ✅ Update environment variables
-- ✅ Update `~/.claude/settings.json`
-- ✅ Update the scheduled task
-- ⚠️ Require new terminal/VS Code window for env vars
-- ⚠️ Require Claude Code restart for settings
+---
 
 ## Troubleshooting
 
-### Scheduled Task Not Running
+**Nothing shows up in the dashboard**
 
-1. **Check if task exists:**
+1. Check the Developer filter is set to your name, and the time range (top right) covers today.
+2. Make sure you restarted your tools **after** setup (Step 4). This is the most common cause.
+3. In a **new** PowerShell window, check the environment variables are set:
    ```powershell
-   Get-ScheduledTask -TaskName CopilotDashboardOpenObserve
+   Get-ChildItem Env: | Where-Object Name -match 'OTEL|COPILOT'
    ```
-
-2. **Check task history:**
-   - Open Task Scheduler
-   - Navigate to `CopilotDashboardOpenObserve`
-   - View history tab
-
-3. **Run manually:**
+   You should see about 10 variables, including
+   `OTEL_EXPORTER_OTLP_ENDPOINT = https://34.14.177.44:8080`.
+4. For Claude Code, confirm the settings were written:
    ```powershell
-   Start-ScheduledTask -TaskName CopilotDashboardOpenObserve
+   Select-String -Path "$env:USERPROFILE\.claude\settings.json" -Pattern '34.14.177.44'
    ```
-
-### Telemetry Not Appearing
-
-1. **Verify Docker is running (LOCAL mode):**
+5. Check the certificate still exists at the path you gave:
    ```powershell
-   docker ps
-   # Should show: openobserve, observability-otel-collector-1
+   Test-Path $env:OTEL_EXPORTER_OTLP_CERTIFICATE
    ```
+   `False` means it was moved or deleted — put it back, or re-run Step 3 with the new path.
 
-2. **Check environment variables:**
-   ```powershell
-   # In a NEW terminal window
-   Get-ChildItem Env: | Where-Object { $_.Name -like '*OTEL*' -or $_.Name -like '*COPILOT*' }
-   ```
+**`python was not found on PATH`**
 
-3. **Check Claude Code settings:**
-   ```powershell
-   Get-Content "$env:USERPROFILE\.claude\settings.json"
-   ```
+Install Python 3 from python.org and tick **"Add python.exe to PATH"** during install, then re-run
+Step 3.
 
-4. **Test OTLP endpoint:**
-   ```powershell
-   # Local
-   curl http://localhost:4318/v1/traces
+**`running scripts is disabled on this system`**
 
-   # Should return 405 Method Not Allowed (endpoint is alive)
-   ```
+Run the command exactly as written in Step 3, including `-ExecutionPolicy Bypass`. It only affects
+that one run; your system policy isn't changed.
 
-### Connection Refused (LOCAL mode)
+**Wrong team, name or password**
 
-Make sure Docker containers are running:
+Re-run Step 3 with the right values. Running it again is safe: it overwrites its own settings and
+keeps everything else in `~/.claude/settings.json`.
+
+**Check that the background job ran**
+
 ```powershell
-cd C:\rdwr-intelij\observability
-docker compose up -d
-docker compose ps
+Get-ScheduledTaskInfo -TaskName CopilotDashboardOpenObserve
+Start-ScheduledTask   -TaskName CopilotDashboardOpenObserve   # run it now
 ```
 
-### Certificate Issues (REMOTE mode)
+A `LastTaskResult` of `0` means it succeeded.
 
-If you get TLS/certificate errors:
-1. Ensure you provided the correct path to `ca.crt`
-2. Check the certificate is valid and not expired
-3. Try with `-OpenObserveInsecureTls` flag (not recommended for production)
+**Still stuck?** Contact AkashS and include the output of the commands above.
 
-## Uninstalling
+---
 
-To remove the scheduled task:
-```powershell
-.\install-openobserve-agent.ps1 -Uninstall
+## macOS / Linux
+
+The shell script configures **Copilot only**. Claude Code has to be configured by hand, and there's
+no automatic background upload.
+
+**1. Copilot** — save `ca.crt` somewhere permanent (e.g. `~/observability/ca.crt`), then:
+
+```bash
+git clone https://github.com/rdwr-akashs/rdwr-copilot_dashboard.git
+cd rdwr-copilot_dashboard/agent
+chmod +x setup-copilot-otel-env.sh
+./setup-copilot-otel-env.sh remote
 ```
 
-To remove environment variables:
-```powershell
-# Remove Copilot env vars
-$vars = @(
-  'OPENOBSERVE_INSECURE_TLS',
-  'OTEL_RESOURCE_ATTRIBUTES',
-  'OTEL_SERVICE_NAME',
-  'OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT',
-  'OTEL_EXPORTER_OTLP_PROTOCOL',
-  'OTEL_EXPORTER_OTLP_ENDPOINT',
-  'OTEL_EXPORTER_OTLP_CERTIFICATE',
-  'COPILOT_OTEL_EXPORTER_TYPES',
-  'COPILOT_OTEL_ENABLED',
-  'COPILOT_OTEL_CAPTURE_CONTENT'
-)
-foreach ($var in $vars) {
-  [Environment]::SetEnvironmentVariable($var, $null, 'User')
-}
+Answer the same attributes and certificate questions as in Windows Step 3. The settings are written
+to `~/.zshrc` (or `~/.bash_profile`).
+
+**2. Claude Code** — first create your auth token (use the password you were sent):
+
+```bash
+echo -n 'admin@localhost.dev:<password>' | base64
 ```
 
-To remove Claude Code telemetry config, manually edit `~/.claude/settings.json` and remove the OTEL-related keys from the `env` object.
+Then open `~/.claude/settings.json` and **merge** these keys into its `"env"` object. Keep any
+other settings already in that file:
 
-## Chronicle Advice Costs
-
-⚠️ **Important**: Chronicle advice capture makes **billed model calls** to generate the advice content.
-
-**Approximate costs per capture:**
-- `standup`: ~1-2 model calls
-- `tips`: ~2-3 model calls
-- `cost-tips`: ~1-2 model calls
-- `improve`: ~2-4 model calls
-
-**Recommendations:**
-- Start with longer intervals (7+ days) to monitor cost
-- Use specific commands rather than all four
-- Consider `-ChronicleAdviceNoSummary` to reduce calls
-
-## macOS/Linux Limitations
-
-The shell script (`setup-copilot-otel-env.sh`) only handles **environment variable configuration**. It does not:
-- Configure Claude Code telemetry (manually edit `~/.claude/settings.json`)
-- Install a scheduled task/cron job (set up manually if needed)
-- Run the Python dashboard/chronicle scripts automatically
-
-### Manual Claude Code Configuration (macOS/Linux)
-
-Edit `~/.claude/settings.json` and merge these settings with your existing config:
-
-#### For LOCAL Mode
-Add these keys under the `env` object:
-```json
-"CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-"OTEL_METRICS_EXPORTER": "otlp",
-"OTEL_LOGS_EXPORTER": "otlp",
-"OTEL_TRACES_EXPORTER": "otlp",
-"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
-"OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
-"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4418",
-"OTEL_SERVICE_NAME": "claude-code",
-"OTEL_RESOURCE_ATTRIBUTES": "team.name=yourteam,department.name=engineering,user=YourName",
-"OTEL_LOG_USER_PROMPTS": "1",
-"OTEL_LOG_ASSISTANT_RESPONSES": "1"
-```
-
-Complete example:
 ```json
 {
   "env": {
     "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
     "OTEL_METRICS_EXPORTER": "otlp",
     "OTEL_LOGS_EXPORTER": "otlp",
     "OTEL_TRACES_EXPORTER": "otlp",
-    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
-    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
-    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4418",
-    "OTEL_SERVICE_NAME": "claude-code",
-    "OTEL_RESOURCE_ATTRIBUTES": "team.name=yourteam,department.name=engineering,user=YourName",
-    "OTEL_LOG_USER_PROMPTS": "1",
-    "OTEL_LOG_ASSISTANT_RESPONSES": "1"
-  }
-}
-```
-
-#### For REMOTE Mode
-Add these keys under the `env` object:
-```json
-"CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-"OTEL_METRICS_EXPORTER": "otlp",
-"OTEL_LOGS_EXPORTER": "otlp",
-"OTEL_TRACES_EXPORTER": "otlp",
-"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
-"OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
-"OTEL_EXPORTER_OTLP_ENDPOINT": "https://34.14.177.44:8080",
-"OTEL_SERVICE_NAME": "claude-code",
-"OTEL_RESOURCE_ATTRIBUTES": "team.name=yourteam,department.name=engineering,user=YourName",
-"OTEL_EXPORTER_OTLP_HEADERS": "Authorization=Basic <base64-encoded-credentials>,stream-name=claude-code",
-"OTEL_EXPORTER_OTLP_CERTIFICATE": "/path/to/ca.crt",
-"NODE_EXTRA_CA_CERTS": "/path/to/ca.crt",
-"OTEL_LOG_USER_PROMPTS": "1",
-"OTEL_LOG_ASSISTANT_RESPONSES": "1"
-```
-
-Complete example:
-```json
-{
-  "env": {
-    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-    "OTEL_METRICS_EXPORTER": "otlp",
-    "OTEL_LOGS_EXPORTER": "otlp",
-    "OTEL_TRACES_EXPORTER": "otlp",
-    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
     "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
     "OTEL_EXPORTER_OTLP_ENDPOINT": "https://34.14.177.44:8080",
+    "OTEL_EXPORTER_OTLP_HEADERS": "Authorization=Basic <token-from-above>,stream-name=claude-code",
+    "OTEL_EXPORTER_OTLP_CERTIFICATE": "/Users/<you>/observability/ca.crt",
+    "NODE_EXTRA_CA_CERTS": "/Users/<you>/observability/ca.crt",
     "OTEL_SERVICE_NAME": "claude-code",
-    "OTEL_RESOURCE_ATTRIBUTES": "team.name=yourteam,department.name=engineering,user=YourName",
-    "OTEL_EXPORTER_OTLP_HEADERS": "Authorization=Basic <base64-encoded-credentials>,stream-name=claude-code",
-    "OTEL_EXPORTER_OTLP_CERTIFICATE": "/path/to/ca.crt",
-    "NODE_EXTRA_CA_CERTS": "/path/to/ca.crt",
+    "OTEL_RESOURCE_ATTRIBUTES": "team.name=<team>,department.name=<department>,user=<YourName>,org=RDWR",
     "OTEL_LOG_USER_PROMPTS": "1",
     "OTEL_LOG_ASSISTANT_RESPONSES": "1"
   }
 }
 ```
 
-Replace `<base64-encoded-credentials>` with the output of:
-```bash
-echo -n "admin@localhost.dev:your-password" | base64
+**3.** Open a new terminal, restart VS Code and Claude Code, then follow
+[Check that it worked](#check-that-it-worked).
+
+---
+
+## Uninstall
+
+From the `agent` folder:
+
+```powershell
+# Remove the background task
+.\install-openobserve-agent.ps1 -Uninstall
+
+# Remove the environment variables
+'OPENOBSERVE_INSECURE_TLS','OTEL_RESOURCE_ATTRIBUTES','OTEL_SERVICE_NAME',
+'OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT','OTEL_EXPORTER_OTLP_PROTOCOL',
+'OTEL_EXPORTER_OTLP_ENDPOINT','OTEL_EXPORTER_OTLP_CERTIFICATE','COPILOT_OTEL_EXPORTER_TYPES',
+'COPILOT_OTEL_ENABLED','COPILOT_OTEL_CAPTURE_CONTENT' |
+  ForEach-Object { [Environment]::SetEnvironmentVariable($_, $null, 'User') }
 ```
 
-### Optional: Set Up Cron Job (macOS/Linux)
+For Claude Code, delete the `OTEL_*`, `CLAUDE_CODE_ENABLE_TELEMETRY`,
+`CLAUDE_CODE_ENHANCED_TELEMETRY_BETA` and `NODE_EXTRA_CA_CERTS` keys from the `"env"` object in
+`~/.claude/settings.json`. Then restart your tools.
 
-To periodically run dashboard generation and data export:
+---
 
-```bash
-# Edit crontab
-crontab -e
+## Advanced options
 
-# Add this line (runs every 6 hours)
-0 */6 * * * cd /path/to/rdwr-copilot_dashboard-openobserve-agent && python3 generate_dashboard.py && python3 openobserve_export.py
+You don't need anything in this section for a normal setup.
+
+### Run against a local Docker stack instead of the shared server
+
+For people developing the dashboards. Start the stack from the `observability` repo
+(`docker compose up -d`), then run the script without `-Mode` (it defaults to `LOCAL`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Setup-CopilotOtelAgent.ps1
 ```
 
-Or use `launchd` on macOS for more control.
+LOCAL mode skips the certificate question. The password is `OpenObserve1!` and the UI is at
+http://localhost:5080. To switch back, re-run with `-Mode REMOTE`.
 
-## Additional Resources
+| | LOCAL | REMOTE |
+|---|---|---|
+| Dashboard UI | http://localhost:5080 | https://34.14.177.44/web/ |
+| Copilot telemetry | http://localhost:4318 | https://34.14.177.44:8080 |
+| Claude Code telemetry | http://localhost:4418 | https://34.14.177.44:8080 |
+| Certificate | not needed | `ca.crt` required |
 
-- **OpenObserve Docs**: https://openobserve.ai/docs
-- **Claude Code Tracing**: https://openobserve.ai/docs/integration/ai/claude-code-tracing/
-- **OpenTelemetry Spec**: https://opentelemetry.io/docs/specs/otel/
+### Chronicle advice (opt-in, costs money)
 
-## Support
+Adds `-ChronicleAdvice` so the background task also asks Copilot for periodic standup notes and
+tips and stores them on the dashboard. **Each capture makes billed model calls**, so it's off by
+default.
 
-For issues or questions:
-1. Check the troubleshooting section above
-2. **Windows**: Review scheduled task logs in Task Scheduler
-3. **macOS/Linux**: Check shell profile (`~/.zshrc` or `~/.bash_profile`) for env vars
-4. Check OpenObserve logs: `docker compose logs openobserve -f` (LOCAL mode)
-5. Check collector logs: `docker compose logs otel-collector -f` (LOCAL mode)
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Setup-CopilotOtelAgent.ps1 -Mode REMOTE `
+  -ChronicleAdvice -ChronicleAdviceIntervalDays 7 -ChronicleAdviceCommands standup
+```
+
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| `-ChronicleAdvice` | off | Turn advice capture on |
+| `-ChronicleAdviceIntervalDays` | `7` | Days between captures |
+| `-ChronicleAdviceCommands` | all | Any of `standup`, `tips`, `cost-tips`, `improve` |
+| `-ChronicleAdviceNoSummary` | off | Skip the summary step (fewer model calls) |
+
+### Override endpoints
+
+Set any of these in the same PowerShell window before running the script to point it somewhere else:
+`OPENOBSERVE_BASE_URL`, `COPILOT_OTEL_ENDPOINT`, `CLAUDE_OTEL_ENDPOINT`.
+
+### What the script changes, exactly
+
+1. **User environment variables** (Copilot): `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SERVICE_NAME`,
+   `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_CERTIFICATE`,
+   `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`, `COPILOT_OTEL_ENABLED`,
+   `COPILOT_OTEL_EXPORTER_TYPES`, `COPILOT_OTEL_CAPTURE_CONTENT`, `OPENOBSERVE_INSECURE_TLS`.
+2. **`~/.claude/settings.json`** (Claude Code): merges the keys shown in the macOS section into
+   `"env"`. Other settings are kept.
+3. **Scheduled task** `CopilotDashboardOpenObserve`: runs `openobserve-agent.ps1` at logon and
+   every 6 hours to upload Copilot insights, Copilot CLI chronicle history, and Claude Code usage.
+
+Re-running the script is always safe. It overwrites its own values and nothing else.

@@ -152,6 +152,47 @@ def _login_name() -> str:
         return "unattributed"
 
 
+UNATTRIBUTED = "unattributed"
+
+
+def resource_attributes() -> dict:
+    """`OTEL_RESOURCE_ATTRIBUTES` parsed into a dict, or empty if it is unset or malformed.
+
+    The variable is a comma-separated `key=value` list -- `team.name=team1,department.name=dept1,
+    user=AkashS` -- and it is the one place a developer has already written down which team they
+    are on, because the Copilot CLI needs it there to send an identity at all. Reading it here
+    means the rows this repository ingests directly carry the same team the collector stamps on
+    the rows that go through it, with nothing new for anyone to set up.
+    """
+    found = {}
+    for pair in os.environ.get("OTEL_RESOURCE_ATTRIBUTES", "").split(","):
+        key, _, value = pair.partition("=")
+        if _ and key.strip():
+            found[key.strip()] = value.strip()
+    return found
+
+
+def team_and_department(team: str = None, department: str = None) -> tuple:
+    """(team, department) for a row the collector never sees, so the team filters reach it.
+
+    Precedence: what the caller passed, then `TEAM_NAME` / `DEPARTMENT_NAME`, then `team.name` /
+    `department.name` out of `OTEL_RESOURCE_ATTRIBUTES`, then `unattributed`.
+
+    The fallback is written into the row rather than left absent on purpose. A missing column is a
+    null, and a null cannot be offered by the Team dropdown -- so a row with no team would be
+    reachable only by *not* filtering, which reads as the filter being broken. Writing
+    `unattributed` makes it a value like any other: selectable, countable, and obviously not a
+    team.
+    """
+    attributes = resource_attributes()
+    resolved = []
+    for explicit, variable, attribute in ((team, "TEAM_NAME", "team.name"),
+                                          (department, "DEPARTMENT_NAME", "department.name")):
+        value = explicit or os.environ.get(variable) or attributes.get(attribute)
+        resolved.append(value.strip() if value and value.strip() else UNATTRIBUTED)
+    return resolved[0], resolved[1]
+
+
 def credits(row: dict, record: Any) -> None:
     """Credits, in the unit every panel already uses. 1 credit = 1,000,000,000 nano-AIU."""
     if record["total_nano_aiu"] is not None:
@@ -307,7 +348,8 @@ JOBS: tuple[dict[str, Any], ...] = (
 # schema seeder can register its columns from one place.
 ADVICE_STREAM = "copilot_chronicle_advice"
 ADVICE_COLUMNS = (
-  "service_user", "chronicle_command", "chronicle_request", "advice_text", "advice_summary",
+  "service_user", "service_team_name", "service_department_name",
+  "chronicle_command", "chronicle_request", "advice_text", "advice_summary",
   "exit_code", "duration_ms", "summary_ms", "captured_at",
 )
 
