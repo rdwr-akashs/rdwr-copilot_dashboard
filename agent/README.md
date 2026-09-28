@@ -21,7 +21,7 @@ Tick these off first — most setup problems come from one of them.
 | 6 | The **OpenObserve password** | Sent to you separately (never in the email) |
 | 7 | Your **team name** and **department name** | Ask your lead if unsure; spelling must match your teammates' |
 
-> On macOS or Linux? Do steps 1–4 below using the [macOS / Linux](#macos--linux) section instead.
+> On macOS or Linux? Skip to [macOS / Linux](#macos--linux).
 
 ---
 
@@ -127,7 +127,7 @@ Don't see yourself after 10 minutes? Go to [Troubleshooting](#troubleshooting).
 Everyone with dashboard access can see this data. Don't paste secrets, customer data or credentials
 into Copilot or Claude Code prompts.
 
-In the background, a scheduled task named `CopilotDashboardOpenObserve` runs at logon and every
+On Windows, a background scheduled task named `CopilotDashboardOpenObserve` runs at logon and every
 6 hours. It uploads your local Copilot CLI history and Claude Code usage summaries so the dashboard
 also covers sessions from before the live telemetry started.
 
@@ -185,10 +185,7 @@ A `LastTaskResult` of `0` means it succeeded.
 
 ## macOS / Linux
 
-The shell script configures **Copilot only**. Claude Code has to be configured by hand, and there's
-no automatic background upload.
-
-**1. Copilot** — save `ca.crt` somewhere permanent (e.g. `~/observability/ca.crt`), then:
+You need `python3` and Git. Save `ca.crt` somewhere permanent (e.g. `~/observability/ca.crt`), then:
 
 ```bash
 git clone https://github.com/rdwr-akashs/rdwr-copilot_dashboard.git
@@ -197,41 +194,13 @@ chmod +x setup-copilot-otel-env.sh
 ./setup-copilot-otel-env.sh remote
 ```
 
-Answer the same attributes and certificate questions as in Windows Step 3. The settings are written
-to `~/.zshrc` (or `~/.bash_profile`).
+It asks the same three questions as Windows [Step 3](#step-3--run-the-setup-script) and sets up both
+Copilot (in `~/.zshrc` or `~/.bash_profile`) and Claude Code (in `~/.claude/settings.json`).
 
-**2. Claude Code** — first create your auth token (use the password you were sent):
-
-```bash
-echo -n 'admin@localhost.dev:<password>' | base64
-```
-
-Then open `~/.claude/settings.json` and **merge** these keys into its `"env"` object. Keep any
-other settings already in that file:
-
-```json
-{
-  "env": {
-    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
-    "OTEL_METRICS_EXPORTER": "otlp",
-    "OTEL_LOGS_EXPORTER": "otlp",
-    "OTEL_TRACES_EXPORTER": "otlp",
-    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
-    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://34.14.177.44:8080",
-    "OTEL_EXPORTER_OTLP_HEADERS": "Authorization=Basic <token-from-above>,stream-name=claude-code",
-    "OTEL_EXPORTER_OTLP_CERTIFICATE": "/Users/<you>/observability/ca.crt",
-    "NODE_EXTRA_CA_CERTS": "/Users/<you>/observability/ca.crt",
-    "OTEL_SERVICE_NAME": "claude-code",
-    "OTEL_RESOURCE_ATTRIBUTES": "team.name=<team>,department.name=<department>,user=<YourName>,org=RDWR",
-    "OTEL_LOG_USER_PROMPTS": "1",
-    "OTEL_LOG_ASSISTANT_RESPONSES": "1"
-  }
-}
-```
-
-**3.** Open a new terminal, restart VS Code and Claude Code, then follow
+Then open a new terminal, restart VS Code and Claude Code, and follow
 [Check that it worked](#check-that-it-worked).
+
+The background history upload is Windows-only; live usage is still sent from macOS/Linux.
 
 ---
 
@@ -298,20 +267,11 @@ powershell -ExecutionPolicy Bypass -File .\Setup-CopilotOtelAgent.ps1 -Mode REMO
 | `-ChronicleAdviceCommands` | all | Any of `standup`, `tips`, `cost-tips`, `improve` |
 | `-ChronicleAdviceNoSummary` | off | Skip the summary step (fewer model calls) |
 
-### Override endpoints
+### What the script changes
 
-Set any of these in the same PowerShell window before running the script to point it somewhere else:
-`OPENOBSERVE_BASE_URL`, `COPILOT_OTEL_ENDPOINT`, `CLAUDE_OTEL_ENDPOINT`.
-
-### What the script changes, exactly
-
-1. **User environment variables** (Copilot): `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SERVICE_NAME`,
-   `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_CERTIFICATE`,
-   `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`, `COPILOT_OTEL_ENABLED`,
-   `COPILOT_OTEL_EXPORTER_TYPES`, `COPILOT_OTEL_CAPTURE_CONTENT`, `OPENOBSERVE_INSECURE_TLS`.
-2. **`~/.claude/settings.json`** (Claude Code): merges the keys shown in the macOS section into
-   `"env"`. Other settings are kept.
-3. **Scheduled task** `CopilotDashboardOpenObserve`: runs `openobserve-agent.ps1` at logon and
-   every 6 hours to upload Copilot insights, Copilot CLI chronicle history, and Claude Code usage.
+1. **User environment variables** for Copilot (the list in [Uninstall](#uninstall)).
+2. **`~/.claude/settings.json`** for Claude Code: adds telemetry keys under `"env"`, including an
+   auth header built from your password. Other settings are kept.
+3. **Scheduled task** `CopilotDashboardOpenObserve` (Windows only): runs at logon and every 6 hours.
 
 Re-running the script is always safe. It overwrites its own values and nothing else.

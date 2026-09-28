@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Sets the Copilot:8080 environment variables for macOS/Linux and (optionally)
-# installs a cron job that periodically regenerates the dashboard + pushes to
-# OpenObserve, using the same python scripts the Windows agent calls.
+# Sets the Copilot OTEL environment variables for macOS/Linux and merges
+# Claude Code's OTEL export settings into ~/.claude/settings.json.
 #
 # Usage:
 #   # Local Docker (default)
@@ -15,10 +14,7 @@
 #   ./setup-copilot-otel-env.sh local
 #
 # There is no macOS/Linux equivalent of install-openobserve-agent.ps1's
-# Windows Scheduled Task (that part of the repo is Windows-only). This script
-# covers Step 1 (OTEL env vars) and offers an optional cron-based Step 3
-# using generate_dashboard.py / openobserve_export.py / chronicle_export.py
-# directly, since those are plain python and cross-platform.
+# Windows Scheduled Task (that part of the repo is Windows-only).
 
 set -euo pipefail
 
@@ -128,6 +124,76 @@ fi
 export COPILOT_OTEL_EXPORTER_TYPES="$COPILOT_OTEL_EXPORTER_TYPES_VALUE"
 export COPILOT_OTEL_ENABLED="$COPILOT_OTEL_ENABLED_VALUE"
 export COPILOT_OTEL_CAPTURE_CONTENT="$COPILOT_OTEL_CAPTURE_CONTENT_VALUE"
+
+# --- Claude Code: merge its OTEL export settings into ~/.claude/settings.json ---
+# Same keys Setup-CopilotOtelAgent.ps1 writes on Windows. Other settings in the file are kept.
+# Reference: https://openobserve.ai/docs/integration/ai/claude-code-tracing/
+if [ "$MODE" = "local" ]; then
+  CLAUDE_OTEL_ENDPOINT_VALUE="http://localhost:4418"
+else
+  CLAUDE_OTEL_ENDPOINT_VALUE="https://34.14.177.44:8080"
+fi
+OPENOBSERVE_USER_NAME="admin@localhost.dev"
+
+OPENOBSERVE_PASSWORD_VALUE=""
+if [ "$NEEDS_CERT" = true ]; then
+  read -r -s -p "OpenObserve password for '$OPENOBSERVE_USER_NAME': " OPENOBSERVE_PASSWORD_VALUE
+  echo
+  if [ -z "$OPENOBSERVE_PASSWORD_VALUE" ]; then
+    echo 'OpenObserve password is required for REMOTE mode.' >&2
+    exit 1
+  fi
+fi
+
+PYTHON_BIN="$(command -v python3 || command -v python || true)"
+if [ -z "$PYTHON_BIN" ]; then
+  echo 'python3 was not found on PATH -- it is needed to update ~/.claude/settings.json.' >&2
+  exit 1
+fi
+
+# Values go through the environment (not argv) so the password never shows up in `ps`.
+CLAUDE_ENDPOINT="$CLAUDE_OTEL_ENDPOINT_VALUE" \
+CLAUDE_PROTOCOL="$OTEL_PROTOCOL_VALUE" \
+CLAUDE_ATTRS="$OTEL_RESOURCE_ATTRIBUTES_VALUE" \
+CLAUDE_CERT="$OTEL_CERTIFICATE_PATH_VALUE" \
+CLAUDE_USER="$OPENOBSERVE_USER_NAME" \
+CLAUDE_PASSWORD="$OPENOBSERVE_PASSWORD_VALUE" \
+"$PYTHON_BIN" - <<'PY'
+import base64, json, os, pathlib
+
+path = pathlib.Path.home() / ".claude" / "settings.json"
+path.parent.mkdir(parents=True, exist_ok=True)
+settings = json.loads(path.read_text(encoding="utf-8")) if path.exists() and path.read_text(encoding="utf-8").strip() else {}
+env = settings.setdefault("env", {})
+
+env.update({
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "OTEL_METRICS_EXPORTER": "otlp",
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_TRACES_EXPORTER": "otlp",
+    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": os.environ["CLAUDE_PROTOCOL"],
+    "OTEL_EXPORTER_OTLP_ENDPOINT": os.environ["CLAUDE_ENDPOINT"],
+    "OTEL_SERVICE_NAME": "claude-code",
+    "OTEL_RESOURCE_ATTRIBUTES": os.environ["CLAUDE_ATTRS"],
+    "OTEL_LOG_USER_PROMPTS": "1",
+    "OTEL_LOG_ASSISTANT_RESPONSES": "1",
+})
+
+if os.environ["CLAUDE_ENDPOINT"].startswith("https://"):
+    token = base64.b64encode(f'{os.environ["CLAUDE_USER"]}:{os.environ["CLAUDE_PASSWORD"]}'.encode()).decode()
+    env["OTEL_EXPORTER_OTLP_HEADERS"] = f"Authorization=Basic {token},stream-name=claude-code"
+    env["OTEL_EXPORTER_OTLP_CERTIFICATE"] = os.environ["CLAUDE_CERT"]
+    env["NODE_EXTRA_CA_CERTS"] = os.environ["CLAUDE_CERT"]
+else:
+    # Clear stale TLS/auth settings left over from a previous REMOTE run.
+    for key in ("OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_CERTIFICATE", "NODE_EXTRA_CA_CERTS"):
+        env.pop(key, None)
+
+path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+PY
+unset OPENOBSERVE_PASSWORD_VALUE
+echo "✓ Merged Claude Code OTEL config into $HOME/.claude/settings.json (other settings in that file are preserved)."
 
 echo
 echo "✓ Wrote OTEL/Copilot env vars to $PROFILE_FILE and exported them into this shell."
